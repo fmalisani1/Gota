@@ -47,7 +47,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 75,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -59,7 +59,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 130,
     meter: METERS[2],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: true,
       sixteenth: false,
@@ -71,7 +71,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 66,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -83,7 +83,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 74,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -95,7 +95,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 63,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -107,7 +107,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 75,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -119,7 +119,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 95,
     meter: METERS[1],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: true,
       sixteenth: true,
@@ -131,7 +131,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 72,
     meter: METERS[0],
     color: '#d8ff32',
-    flashIntensity: 1,
+    flashIntensity: 2,
     subdivisions: {
       eighth: false,
       sixteenth: false,

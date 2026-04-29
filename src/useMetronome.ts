@@ -8,6 +8,8 @@ type TransportState = {
 
 const lookaheadMs = 25
 const scheduleAheadSeconds = 0.12
+const mediaBridgeSampleRate = 8000
+const mediaBridgeDurationSeconds = 1
 
 export function useMetronome(
   track: Track,
@@ -25,6 +27,9 @@ export function useMetronome(
   const audioContextRef = useRef<AudioContext | null>(null)
   const intervalRef = useRef<number | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
+  const mediaBridgeAudioRef = useRef<HTMLAudioElement | null>(null)
+  const mediaBridgeUrlRef = useRef<string | null>(null)
+  const shouldPlayMediaBridgeRef = useRef(false)
   const nextStepTimeRef = useRef(0)
   const stepIndexRef = useRef(0)
   const pulseIdRef = useRef(0)
@@ -98,6 +103,51 @@ export function useMetronome(
     }
 
     return audioContextRef.current
+  }, [])
+
+  const getMediaBridgeAudio = useCallback(() => {
+    if (mediaBridgeAudioRef.current) {
+      return mediaBridgeAudioRef.current
+    }
+
+    const sourceUrl = createSilentWavUrl()
+    const audio = new Audio(sourceUrl)
+    audio.loop = true
+    audio.preload = 'auto'
+    audio.addEventListener('pause', () => {
+      if (shouldPlayMediaBridgeRef.current) {
+        void audio.play().catch(() => {
+          // Bluetooth controls may pause the bridge before Chrome allows replay.
+        })
+      }
+    })
+
+    mediaBridgeUrlRef.current = sourceUrl
+    mediaBridgeAudioRef.current = audio
+    return audio
+  }, [])
+
+  const startMediaBridge = useCallback(() => {
+    shouldPlayMediaBridgeRef.current = true
+    const audio = getMediaBridgeAudio()
+
+    if (audio.paused) {
+      void audio.play().catch(() => {
+        // The metronome still works if the browser blocks the media bridge.
+      })
+    }
+  }, [getMediaBridgeAudio])
+
+  const stopMediaBridge = useCallback(() => {
+    shouldPlayMediaBridgeRef.current = false
+
+    const audio = mediaBridgeAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    audio.pause()
+    audio.currentTime = 0
   }, [])
 
   const schedulePulse = useCallback(
@@ -183,6 +233,7 @@ export function useMetronome(
       intervalRef.current = null
     }
 
+    stopMediaBridge()
     clearVisualTimers()
     setIsPlaying(false)
     setPulse(null)
@@ -190,9 +241,10 @@ export function useMetronome(
       beatInMeasure: 1,
       stepInMeasure: 0,
     })
-  }, [clearVisualTimers])
+  }, [clearVisualTimers, stopMediaBridge])
 
   const start = useCallback(async () => {
+    startMediaBridge()
     const context = await getAudioContext()
 
     if (intervalRef.current !== null) {
@@ -205,7 +257,7 @@ export function useMetronome(
     runScheduler()
     intervalRef.current = window.setInterval(runScheduler, lookaheadMs)
     setIsPlaying(true)
-  }, [clearVisualTimers, getAudioContext, runScheduler])
+  }, [clearVisualTimers, getAudioContext, runScheduler, startMediaBridge])
 
   const toggle = useCallback(() => {
     if (isPlaying) {
@@ -239,6 +291,14 @@ export function useMetronome(
 
   useEffect(() => stop, [stop])
 
+  useEffect(() => {
+    return () => {
+      if (mediaBridgeUrlRef.current) {
+        URL.revokeObjectURL(mediaBridgeUrlRef.current)
+      }
+    }
+  }, [])
+
   return {
     isPlaying,
     pulse,
@@ -246,6 +306,39 @@ export function useMetronome(
     stop,
     toggle,
     transport,
+  }
+}
+
+function createSilentWavUrl() {
+  const sampleCount = mediaBridgeSampleRate * mediaBridgeDurationSeconds
+  const dataSize = sampleCount * 2
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buffer)
+
+  writeAscii(view, 0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeAscii(view, 8, 'WAVE')
+  writeAscii(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, mediaBridgeSampleRate, true)
+  view.setUint32(28, mediaBridgeSampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeAscii(view, 36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  return URL.createObjectURL(
+    new Blob([buffer], {
+      type: 'audio/wav',
+    }),
+  )
+}
+
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index))
   }
 }
 

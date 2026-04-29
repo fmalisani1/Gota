@@ -45,7 +45,7 @@ type AudioSettings = {
 
 const TRACKS_STORAGE_KEY = 'gota.tracks'
 const TRACKS_STORAGE_VERSION_KEY = 'gota.tracks.version'
-const TRACKS_STORAGE_VERSION = 'setlist-volver-2026-04-29'
+const TRACKS_STORAGE_VERSION = 'setlist-volver-max-brightness-2026-04-29'
 
 function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
@@ -695,22 +695,30 @@ function App() {
 }
 
 function readStoredTracks() {
-  const storedVersion = window.localStorage.getItem(TRACKS_STORAGE_VERSION_KEY)
-  if (storedVersion !== TRACKS_STORAGE_VERSION) {
-    window.localStorage.setItem(TRACKS_STORAGE_KEY, JSON.stringify(DEFAULT_TRACKS))
+  const rawTracks = window.localStorage.getItem(TRACKS_STORAGE_KEY)
+  if (!rawTracks) {
     window.localStorage.setItem(TRACKS_STORAGE_VERSION_KEY, TRACKS_STORAGE_VERSION)
     return DEFAULT_TRACKS
   }
 
-  const rawTracks = window.localStorage.getItem(TRACKS_STORAGE_KEY)
-  if (!rawTracks) {
-    return DEFAULT_TRACKS
-  }
-
   try {
+    const storedVersion = window.localStorage.getItem(TRACKS_STORAGE_VERSION_KEY)
     const parsed = JSON.parse(rawTracks) as Partial<Track>[]
-    return parsed.length > 0 ? normalizeTracks(parsed) : DEFAULT_TRACKS
+    const normalizedTracks = parsed.length > 0 ? normalizeTracks(parsed) : DEFAULT_TRACKS
+
+    if (storedVersion !== TRACKS_STORAGE_VERSION) {
+      const migratedTracks = normalizedTracks.map((track) => ({
+        ...track,
+        flashIntensity: 2,
+      }))
+      window.localStorage.setItem(TRACKS_STORAGE_KEY, JSON.stringify(migratedTracks))
+      window.localStorage.setItem(TRACKS_STORAGE_VERSION_KEY, TRACKS_STORAGE_VERSION)
+      return migratedTracks
+    }
+
+    return normalizedTracks
   } catch {
+    window.localStorage.setItem(TRACKS_STORAGE_VERSION_KEY, TRACKS_STORAGE_VERSION)
     return DEFAULT_TRACKS
   }
 }
@@ -785,6 +793,8 @@ function useMediaSessionControls({
       ['pause', toggleMute],
       ['previoustrack', () => selectRelativeTrack(-1)],
       ['nexttrack', () => selectRelativeTrack(1)],
+      ['seekbackward', () => selectRelativeTrack(-1)],
+      ['seekforward', () => selectRelativeTrack(1)],
     ]
 
     handlers.forEach(([action, handler]) => {
