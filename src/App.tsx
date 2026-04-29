@@ -762,8 +762,20 @@ function useMediaSessionControls({
     if (typeof MediaMetadata !== 'undefined') {
       mediaSession.metadata = new MediaMetadata({
         title: currentTrack.title,
-        artist: `${currentTrack.bpm} BPM - ${currentTrack.meter.label}`,
-        album: 'Gota',
+        artist: `Gota - ${currentTrack.bpm} BPM - ${currentTrack.meter.label}`,
+        album: 'Metronomo visual',
+        artwork: [
+          {
+            src: `${import.meta.env.BASE_URL}icon-192.png`,
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: `${import.meta.env.BASE_URL}icon-512.png`,
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
       })
     }
 

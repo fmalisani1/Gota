@@ -8,8 +8,10 @@ type TransportState = {
 
 const lookaheadMs = 25
 const scheduleAheadSeconds = 0.12
-const mediaBridgeSampleRate = 8000
-const mediaBridgeDurationSeconds = 1
+const mediaBridgeSampleRate = 44100
+const mediaBridgeDurationSeconds = 2
+const mediaBridgeFrequency = 440
+const mediaBridgeAmplitude = 1
 
 export function useMetronome(
   track: Track,
@@ -110,10 +112,18 @@ export function useMetronome(
       return mediaBridgeAudioRef.current
     }
 
-    const sourceUrl = createSilentWavUrl()
+    const sourceUrl = createMediaBridgeWavUrl()
     const audio = new Audio(sourceUrl)
     audio.loop = true
     audio.preload = 'auto'
+    audio.volume = 1
+    audio.setAttribute('aria-hidden', 'true')
+    audio.setAttribute('playsinline', 'true')
+    audio.setAttribute('webkit-playsinline', 'true')
+    audio.style.display = 'none'
+
+    document.body.appendChild(audio)
+
     audio.addEventListener('pause', () => {
       if (shouldPlayMediaBridgeRef.current) {
         void audio.play().catch(() => {
@@ -293,6 +303,8 @@ export function useMetronome(
 
   useEffect(() => {
     return () => {
+      mediaBridgeAudioRef.current?.remove()
+
       if (mediaBridgeUrlRef.current) {
         URL.revokeObjectURL(mediaBridgeUrlRef.current)
       }
@@ -309,7 +321,7 @@ export function useMetronome(
   }
 }
 
-function createSilentWavUrl() {
+function createMediaBridgeWavUrl() {
   const sampleCount = mediaBridgeSampleRate * mediaBridgeDurationSeconds
   const dataSize = sampleCount * 2
   const buffer = new ArrayBuffer(44 + dataSize)
@@ -328,6 +340,12 @@ function createSilentWavUrl() {
   view.setUint16(34, 16, true)
   writeAscii(view, 36, 'data')
   view.setUint32(40, dataSize, true)
+
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    const phase = (sampleIndex / mediaBridgeSampleRate) * mediaBridgeFrequency * Math.PI * 2
+    const sample = Math.round(Math.sin(phase) * mediaBridgeAmplitude)
+    view.setInt16(44 + sampleIndex * 2, sample, true)
+  }
 
   return URL.createObjectURL(
     new Blob([buffer], {
