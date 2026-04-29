@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
@@ -35,6 +35,10 @@ type VisualSettings = {
   quality: VisualQualityMode
   showStats: boolean
 }
+
+const TRACKS_STORAGE_KEY = 'gota.tracks'
+const TRACKS_STORAGE_VERSION_KEY = 'gota.tracks.version'
+const TRACKS_STORAGE_VERSION = 'setlist-volver-2026-04-29'
 
 function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
@@ -59,9 +63,11 @@ function App() {
   const subdivisionMode = getSubdivisionMode(currentTrack)
   const effectiveVisualDelayMs = syncSettings.enabled ? syncSettings.delayMs : 0
   const metronome = useMetronome(currentTrack, effectiveVisualDelayMs)
+  useScreenWakeLock(metronome.isPlaying)
 
   useEffect(() => {
-    window.localStorage.setItem('gota.tracks', JSON.stringify(tracks))
+    window.localStorage.setItem(TRACKS_STORAGE_KEY, JSON.stringify(tracks))
+    window.localStorage.setItem(TRACKS_STORAGE_VERSION_KEY, TRACKS_STORAGE_VERSION)
   }, [tracks])
 
   useEffect(() => {
@@ -596,7 +602,14 @@ function App() {
 }
 
 function readStoredTracks() {
-  const rawTracks = window.localStorage.getItem('gota.tracks')
+  const storedVersion = window.localStorage.getItem(TRACKS_STORAGE_VERSION_KEY)
+  if (storedVersion !== TRACKS_STORAGE_VERSION) {
+    window.localStorage.setItem(TRACKS_STORAGE_KEY, JSON.stringify(DEFAULT_TRACKS))
+    window.localStorage.setItem(TRACKS_STORAGE_VERSION_KEY, TRACKS_STORAGE_VERSION)
+    return DEFAULT_TRACKS
+  }
+
+  const rawTracks = window.localStorage.getItem(TRACKS_STORAGE_KEY)
   if (!rawTracks) {
     return DEFAULT_TRACKS
   }
@@ -607,6 +620,100 @@ function readStoredTracks() {
   } catch {
     return DEFAULT_TRACKS
   }
+}
+
+type ScreenWakeLockSentinel = EventTarget & {
+  released: boolean
+  release: () => Promise<void>
+  type: 'screen'
+}
+
+type NavigatorWithWakeLock = Navigator & {
+  wakeLock?: {
+    request: (type: 'screen') => Promise<ScreenWakeLockSentinel>
+  }
+}
+
+function useScreenWakeLock(isActive: boolean) {
+  const sentinelRef = useRef<ScreenWakeLockSentinel | null>(null)
+  const isActiveRef = useRef(isActive)
+
+  useEffect(() => {
+    isActiveRef.current = isActive
+  }, [isActive])
+
+  useEffect(() => {
+    let disposed = false
+
+    const releaseWakeLock = async () => {
+      const sentinel = sentinelRef.current
+      sentinelRef.current = null
+
+      if (!sentinel || sentinel.released) {
+        return
+      }
+
+      try {
+        await sentinel.release()
+      } catch {
+        // Some browsers reject release when the lock was already revoked.
+      }
+    }
+
+    const requestWakeLock = async () => {
+      if (
+        !isActiveRef.current ||
+        document.visibilityState !== 'visible' ||
+        sentinelRef.current
+      ) {
+        return
+      }
+
+      const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock
+      if (!wakeLock) {
+        return
+      }
+
+      try {
+        const sentinel = await wakeLock.request('screen')
+
+        if (
+          disposed ||
+          !isActiveRef.current ||
+          document.visibilityState !== 'visible'
+        ) {
+          await sentinel.release()
+          return
+        }
+
+        sentinelRef.current = sentinel
+        sentinel.addEventListener('release', () => {
+          if (sentinelRef.current === sentinel) {
+            sentinelRef.current = null
+          }
+        })
+      } catch {
+        sentinelRef.current = null
+      }
+    }
+
+    const syncWakeLock = () => {
+      if (isActiveRef.current && document.visibilityState === 'visible') {
+        void requestWakeLock()
+      } else {
+        void releaseWakeLock()
+      }
+    }
+
+    syncWakeLock()
+    document.addEventListener('visibilitychange', syncWakeLock)
+
+    return () => {
+      disposed = true
+      document.removeEventListener('visibilitychange', syncWakeLock)
+      void releaseWakeLock()
+    }
+  }, [isActive])
 }
 
 function readStoredSyncSettings(): SyncSettings {
