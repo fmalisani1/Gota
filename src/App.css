@@ -99,6 +99,7 @@
 .icon-button,
 .transport-button,
 .subdivision-button,
+.subdivision-option,
 .song-tool {
   display: inline-grid;
   place-items: center;
@@ -127,6 +128,7 @@
 .icon-button:hover,
 .transport-button:hover,
 .subdivision-button:hover,
+.subdivision-option:hover,
 .song-tool:hover,
 .add-track-button:hover,
 .panel-command:hover {
@@ -137,6 +139,7 @@
 .icon-button:active,
 .transport-button:active,
 .subdivision-button:active,
+.subdivision-option:active,
 .song-tool:active,
 .add-track-button:active,
 .panel-command:active {
@@ -145,13 +148,17 @@
 
 .icon-button.is-active,
 .playlist-button.is-active,
-.subdivision-button.is-active {
+.subdivision-button.is-active,
+.subdivision-option.is-active,
+.mute-button.is-muted {
   color: #111806;
 }
 
 .icon-button.is-active,
 .playlist-button.is-active,
-.subdivision-button.is-active {
+.subdivision-button.is-active,
+.subdivision-option.is-active,
+.mute-button.is-muted {
   border-color: rgba(216, 255, 50, 0.98);
   background: #d8ff32;
   box-shadow:
@@ -280,6 +287,40 @@
 
 .subdivision-stack svg + svg {
   margin-left: -5px;
+}
+
+.subdivision-setting {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.subdivision-option {
+  position: relative;
+  display: flex;
+  min-height: 54px;
+  gap: 8px;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.subdivision-option span {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.subdivision-option.mode-off::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  width: 25px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(-42deg);
 }
 
 .side-panel {
@@ -493,6 +534,7 @@
 .app-shell.quality-performance .icon-button,
 .app-shell.quality-performance .transport-button,
 .app-shell.quality-performance .subdivision-button,
+.app-shell.quality-performance .subdivision-option,
 .app-shell.quality-performance .song-tool,
 .app-shell.quality-performance .side-panel {
   backdrop-filter: none;
@@ -558,6 +600,7 @@
   .icon-button,
   .transport-button,
   .subdivision-button,
+  .subdivision-option,
   .song-tool,
   .side-panel {
     backdrop-filter: none;
@@ -591,12 +634,17 @@
     width: 32px;
     height: 32px;
   }
+
+  .subdivision-setting {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (pointer: coarse) {
   .icon-button,
   .transport-button,
   .subdivision-button,
+  .subdivision-option,
   .song-tool,
   .side-panel {
     backdrop-filter: none;

@@ -9,7 +9,12 @@ type TransportState = {
 const lookaheadMs = 25
 const scheduleAheadSeconds = 0.12
 
-export function useMetronome(track: Track, visualDelayMs = 0) {
+export function useMetronome(
+  track: Track,
+  visualDelayMs = 0,
+  isMuted = false,
+  muteFadeOutSeconds = 5,
+) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [pulse, setPulse] = useState<PulseEvent | null>(null)
   const [transport, setTransport] = useState<TransportState>({
@@ -19,10 +24,13 @@ export function useMetronome(track: Track, visualDelayMs = 0) {
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const intervalRef = useRef<number | null>(null)
+  const masterGainRef = useRef<GainNode | null>(null)
   const nextStepTimeRef = useRef(0)
   const stepIndexRef = useRef(0)
   const pulseIdRef = useRef(0)
   const visualTimersRef = useRef<number[]>([])
+  const isMutedRef = useRef(isMuted)
+  const muteFadeOutSecondsRef = useRef(muteFadeOutSeconds)
   const trackRef = useRef(track)
   const visualDelayMsRef = useRef(visualDelayMs)
 
@@ -34,6 +42,38 @@ export function useMetronome(track: Track, visualDelayMs = 0) {
     visualDelayMsRef.current = visualDelayMs
   }, [visualDelayMs])
 
+  const applyMuteState = useCallback(() => {
+    const context = audioContextRef.current
+    const masterGain = masterGainRef.current
+    if (!context || !masterGain) {
+      return
+    }
+
+    const now = context.currentTime
+    const gain = masterGain.gain
+    gain.cancelScheduledValues(now)
+
+    if (!isMutedRef.current) {
+      gain.setValueAtTime(1, now)
+      return
+    }
+
+    const fadeSeconds = muteFadeOutSecondsRef.current
+    if (fadeSeconds <= 0) {
+      gain.setValueAtTime(0, now)
+      return
+    }
+
+    gain.setValueAtTime(Math.max(gain.value, 0.0001), now)
+    gain.linearRampToValueAtTime(0, now + fadeSeconds)
+  }, [])
+
+  useEffect(() => {
+    isMutedRef.current = isMuted
+    muteFadeOutSecondsRef.current = muteFadeOutSeconds
+    applyMuteState()
+  }, [applyMuteState, isMuted, muteFadeOutSeconds])
+
   const clearVisualTimers = useCallback(() => {
     visualTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
     visualTimersRef.current = []
@@ -42,6 +82,15 @@ export function useMetronome(track: Track, visualDelayMs = 0) {
   const getAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new AudioContext({ latencyHint: 'interactive' })
+    }
+
+    if (!masterGainRef.current) {
+      masterGainRef.current = audioContextRef.current.createGain()
+      masterGainRef.current.gain.setValueAtTime(
+        isMutedRef.current ? 0 : 1,
+        audioContextRef.current.currentTime,
+      )
+      masterGainRef.current.connect(audioContextRef.current.destination)
     }
 
     if (audioContextRef.current.state === 'suspended') {
@@ -61,8 +110,9 @@ export function useMetronome(track: Track, visualDelayMs = 0) {
     ) => {
       const accent = stepIndex === 0
       const beatInMeasure = Math.floor(stepIndex / 4) + 1
+      const destination = masterGainRef.current ?? context.destination
 
-      scheduleDropSound(context, audioTime, kind, accent)
+      scheduleDropSound(context, audioTime, kind, accent, destination)
 
       const delayMs = Math.max(
         0,
@@ -222,6 +272,7 @@ function scheduleDropSound(
   audioTime: number,
   kind: PulseKind,
   accent: boolean,
+  destination: AudioNode,
 ) {
   const oscillator = context.createOscillator()
   const toneGain = context.createGain()
@@ -276,7 +327,7 @@ function scheduleDropSound(
   noise.connect(noiseFilter)
   noiseFilter.connect(noiseGain)
   noiseGain.connect(output)
-  output.connect(context.destination)
+  output.connect(destination)
 
   oscillator.start(audioTime)
   oscillator.stop(audioTime + duration + 0.04)

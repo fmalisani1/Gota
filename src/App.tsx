@@ -14,9 +14,11 @@ import {
   Plus,
   SlidersHorizontal,
   Trash2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { Dispatch, DragEvent, SetStateAction } from 'react'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
 import type { VisualPerformanceStats, VisualQualityMode } from './DropVisualizer'
@@ -36,6 +38,11 @@ type VisualSettings = {
   showStats: boolean
 }
 
+type AudioSettings = {
+  muted: boolean
+  muteFadeOutSeconds: number
+}
+
 const TRACKS_STORAGE_KEY = 'gota.tracks'
 const TRACKS_STORAGE_VERSION_KEY = 'gota.tracks.version'
 const TRACKS_STORAGE_VERSION = 'setlist-volver-2026-04-29'
@@ -44,6 +51,9 @@ function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(() =>
     readStoredSyncSettings(),
+  )
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(() =>
+    readStoredAudioSettings(),
   )
   const [visualSettings, setVisualSettings] = useState<VisualSettings>(() =>
     readStoredVisualSettings(),
@@ -62,7 +72,12 @@ function App() {
   const currentTrack = tracks[currentIndex] ?? tracks[0]
   const subdivisionMode = getSubdivisionMode(currentTrack)
   const effectiveVisualDelayMs = syncSettings.enabled ? syncSettings.delayMs : 0
-  const metronome = useMetronome(currentTrack, effectiveVisualDelayMs)
+  const metronome = useMetronome(
+    currentTrack,
+    effectiveVisualDelayMs,
+    audioSettings.muted,
+    audioSettings.muteFadeOutSeconds,
+  )
   useScreenWakeLock(metronome.isPlaying)
 
   useEffect(() => {
@@ -73,6 +88,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('gota.sync', JSON.stringify(syncSettings))
   }, [syncSettings])
+
+  useEffect(() => {
+    window.localStorage.setItem('gota.audio', JSON.stringify(audioSettings))
+  }, [audioSettings])
 
   useEffect(() => {
     window.localStorage.setItem('gota.visual', JSON.stringify(visualSettings))
@@ -97,11 +116,24 @@ function App() {
     }
   }
 
-  const cycleSubdivisionMode = () => {
-    const nextMode = getNextSubdivisionMode(subdivisionMode)
+  const updateSubdivisionMode = (nextMode: SubdivisionMode) => {
     updateCurrentTrack({
       subdivisions: getSubdivisionsForMode(nextMode),
     })
+  }
+
+  const unmuteAudio = () => {
+    setAudioSettings((settings) =>
+      settings.muted ? { ...settings, muted: false } : settings,
+    )
+  }
+
+  const selectTrack = (trackId: string) => {
+    if (trackId !== currentTrackId) {
+      unmuteAudio()
+    }
+
+    setCurrentTrackId(trackId)
   }
 
   const addTrack = () => {
@@ -118,7 +150,7 @@ function App() {
     }
 
     setTracks((items) => [...items, newTrack])
-    setCurrentTrackId(newTrack.id)
+    selectTrack(newTrack.id)
   }
 
   const deleteTrack = (trackId: string) => {
@@ -132,7 +164,7 @@ function App() {
 
     if (currentTrackId === trackId) {
       const nextIndex = Math.min(Math.max(deletedIndex, 0), nextTracks.length - 1)
-      setCurrentTrackId(nextTracks[nextIndex].id)
+      selectTrack(nextTracks[nextIndex].id)
     }
   }
 
@@ -191,7 +223,7 @@ function App() {
 
   const goToTrack = (direction: -1 | 1) => {
     const nextIndex = (currentIndex + direction + tracks.length) % tracks.length
-    setCurrentTrackId(tracks[nextIndex].id)
+    selectTrack(tracks[nextIndex].id)
   }
 
   const requestFullscreen = () => {
@@ -226,6 +258,20 @@ function App() {
     }))
   }
 
+  const toggleMute = () => {
+    setAudioSettings((settings) => ({
+      ...settings,
+      muted: !settings.muted,
+    }))
+  }
+
+  const updateMuteFadeOut = (fadeOutSeconds: number) => {
+    setAudioSettings((settings) => ({
+      ...settings,
+      muteFadeOutSeconds: clampMuteFadeOut(fadeOutSeconds),
+    }))
+  }
+
   const updateVisualQuality = (quality: VisualQualityMode) => {
     setVisualSettings((settings) => ({
       ...settings,
@@ -243,6 +289,15 @@ function App() {
       showStats: !settings.showStats,
     }))
   }
+
+  useMediaSessionControls({
+    currentIndex,
+    currentTrack,
+    isPlaying: metronome.isPlaying,
+    setAudioSettings,
+    setCurrentTrackId,
+    tracks,
+  })
 
   return (
     <div className={`app-shell quality-${visualSettings.quality}`}>
@@ -314,14 +369,14 @@ function App() {
       <footer className="control-dock">
         <button
           type="button"
-          className={`subdivision-button mode-${subdivisionMode} ${
-            subdivisionMode !== 'off' ? 'is-active' : ''
+          className={`transport-button mute-button ${
+            audioSettings.muted ? 'is-muted' : ''
           }`}
-          aria-label={`Subdivisión: ${getSubdivisionLabel(subdivisionMode)}`}
-          title={`Subdivisión: ${getSubdivisionLabel(subdivisionMode)}`}
-          onClick={cycleSubdivisionMode}
+          aria-label={audioSettings.muted ? 'Activar sonido' : 'Silenciar'}
+          title={audioSettings.muted ? 'Activar sonido' : 'Silenciar'}
+          onClick={toggleMute}
         >
-          {renderSubdivisionIcon(subdivisionMode)}
+          {audioSettings.muted ? <VolumeX size={25} /> : <Volume2 size={25} />}
         </button>
         <button
           type="button"
@@ -383,7 +438,7 @@ function App() {
                 <button
                   type="button"
                   className="song-main"
-                  onClick={() => setCurrentTrackId(track.id)}
+                  onClick={() => selectTrack(track.id)}
                 >
                   <span>{track.title}</span>
                   <small>
@@ -531,6 +586,44 @@ function App() {
             />
           </label>
 
+          <div className="field">
+            <span>Subdivisión</span>
+            <div className="subdivision-setting" role="group" aria-label="Subdivisión">
+              {subdivisionModes.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`subdivision-option mode-${mode} ${
+                    subdivisionMode === mode ? 'is-active' : ''
+                  }`}
+                  onClick={() => updateSubdivisionMode(mode)}
+                >
+                  {renderSubdivisionIcon(mode)}
+                  <span>{getSubdivisionLabel(mode)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field global-field">
+            <span>Fade al silenciar</span>
+            <div className="field-row">
+              <input
+                type="range"
+                min="0"
+                max="10"
+                step="0.5"
+                value={audioSettings.muteFadeOutSeconds}
+                onChange={(event) =>
+                  updateMuteFadeOut(Number(event.currentTarget.value))
+                }
+              />
+              <output className="number-output">
+                {formatSeconds(audioSettings.muteFadeOutSeconds)}
+              </output>
+            </div>
+          </div>
+
           <div className="field sync-field">
             <span>Sync Bluetooth</span>
             <div className="sync-row">
@@ -631,6 +724,97 @@ type ScreenWakeLockSentinel = EventTarget & {
 type NavigatorWithWakeLock = Navigator & {
   wakeLock?: {
     request: (type: 'screen') => Promise<ScreenWakeLockSentinel>
+  }
+}
+
+type MediaSessionControlsOptions = {
+  currentIndex: number
+  currentTrack: Track
+  isPlaying: boolean
+  setAudioSettings: Dispatch<SetStateAction<AudioSettings>>
+  setCurrentTrackId: Dispatch<SetStateAction<string>>
+  tracks: Track[]
+}
+
+function useMediaSessionControls({
+  currentIndex,
+  currentTrack,
+  isPlaying,
+  setAudioSettings,
+  setCurrentTrackId,
+  tracks,
+}: MediaSessionControlsOptions) {
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) {
+      return
+    }
+
+    const mediaSession = navigator.mediaSession
+
+    if (typeof MediaMetadata !== 'undefined') {
+      mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: `${currentTrack.bpm} BPM - ${currentTrack.meter.label}`,
+        album: 'Gota',
+      })
+    }
+
+    mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+
+    const toggleMute = () => {
+      setAudioSettings((settings) => ({
+        ...settings,
+        muted: !settings.muted,
+      }))
+    }
+
+    const selectRelativeTrack = (direction: -1 | 1) => {
+      if (tracks.length === 0) {
+        return
+      }
+
+      const nextIndex = (currentIndex + direction + tracks.length) % tracks.length
+      setCurrentTrackId(tracks[nextIndex].id)
+      setAudioSettings((settings) =>
+        settings.muted ? { ...settings, muted: false } : settings,
+      )
+    }
+
+    const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+      ['play', toggleMute],
+      ['pause', toggleMute],
+      ['previoustrack', () => selectRelativeTrack(-1)],
+      ['nexttrack', () => selectRelativeTrack(1)],
+    ]
+
+    handlers.forEach(([action, handler]) => {
+      setMediaSessionActionHandler(mediaSession, action, handler)
+    })
+
+    return () => {
+      handlers.forEach(([action]) => {
+        setMediaSessionActionHandler(mediaSession, action, null)
+      })
+    }
+  }, [
+    currentIndex,
+    currentTrack,
+    isPlaying,
+    setAudioSettings,
+    setCurrentTrackId,
+    tracks,
+  ])
+}
+
+function setMediaSessionActionHandler(
+  mediaSession: MediaSession,
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler | null,
+) {
+  try {
+    mediaSession.setActionHandler(action, handler)
+  } catch {
+    // Some browsers expose Media Session but do not support every action.
   }
 }
 
@@ -739,6 +923,29 @@ function readStoredSyncSettings(): SyncSettings {
   }
 }
 
+function readStoredAudioSettings(): AudioSettings {
+  const rawSettings = window.localStorage.getItem('gota.audio')
+  if (!rawSettings) {
+    return {
+      muted: false,
+      muteFadeOutSeconds: 5,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(rawSettings) as Partial<AudioSettings>
+    return {
+      muted: Boolean(parsed.muted),
+      muteFadeOutSeconds: clampMuteFadeOut(parsed.muteFadeOutSeconds ?? 5),
+    }
+  } catch {
+    return {
+      muted: false,
+      muteFadeOutSeconds: 5,
+    }
+  }
+}
+
 function readStoredVisualSettings(): VisualSettings {
   const rawSettings = window.localStorage.getItem('gota.visual')
   if (!rawSettings) {
@@ -803,19 +1010,6 @@ function getSubdivisionMode(track: Track): SubdivisionMode {
   return 'off'
 }
 
-function getNextSubdivisionMode(mode: SubdivisionMode): SubdivisionMode {
-  switch (mode) {
-    case 'off':
-      return 'eighth'
-    case 'eighth':
-      return 'sixteenth'
-    case 'sixteenth':
-      return 'both'
-    case 'both':
-      return 'off'
-  }
-}
-
 function getSubdivisionsForMode(mode: SubdivisionMode) {
   return {
     eighth: mode === 'eighth' || mode === 'both',
@@ -835,6 +1029,8 @@ function getSubdivisionLabel(mode: SubdivisionMode) {
       return 'corchea y semicorchea'
   }
 }
+
+const subdivisionModes: SubdivisionMode[] = ['off', 'eighth', 'sixteenth', 'both']
 
 function renderSubdivisionIcon(mode: SubdivisionMode) {
   if (mode === 'both') {
@@ -871,6 +1067,21 @@ function clampVisualDelay(value: number) {
   }
 
   return Math.min(350, Math.max(0, Math.round(value / 5) * 5))
+}
+
+function clampMuteFadeOut(value: number) {
+  if (Number.isNaN(value)) {
+    return 5
+  }
+
+  return Math.min(10, Math.max(0, Math.round(value * 2) / 2))
+}
+
+function formatSeconds(value: number) {
+  return `${value.toLocaleString('es-AR', {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+  })}s`
 }
 
 function isVisualQualityMode(value: unknown): value is VisualQualityMode {
