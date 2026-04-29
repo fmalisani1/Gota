@@ -23,6 +23,8 @@ import { useMetronome } from './useMetronome'
 import { DEFAULT_TRACKS, METERS } from './types'
 import type { Track } from './types'
 
+type SubdivisionMode = 'off' | 'eighth' | 'sixteenth' | 'both'
+
 function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
@@ -35,6 +37,7 @@ function App() {
     tracks.findIndex((track) => track.id === currentTrackId),
   )
   const currentTrack = tracks[currentIndex] ?? tracks[0]
+  const subdivisionMode = getSubdivisionMode(currentTrack)
   const metronome = useMetronome(currentTrack)
 
   useEffect(() => {
@@ -60,15 +63,10 @@ function App() {
     }
   }
 
-  const updateSubdivision = (
-    key: keyof Track['subdivisions'],
-    value: boolean,
-  ) => {
+  const cycleSubdivisionMode = () => {
+    const nextMode = getNextSubdivisionMode(subdivisionMode)
     updateCurrentTrack({
-      subdivisions: {
-        ...currentTrack.subdivisions,
-        [key]: value,
-      },
+      subdivisions: getSubdivisionsForMode(nextMode),
     })
   }
 
@@ -206,15 +204,6 @@ function App() {
         <div className="top-actions" aria-label="Paneles">
           <button
             type="button"
-            className={`icon-button ${showSongs ? 'is-active' : ''}`}
-            aria-label="Lista de temas"
-            title="Lista de temas"
-            onClick={toggleSongs}
-          >
-            <ListMusic size={21} />
-          </button>
-          <button
-            type="button"
             className={`icon-button ${showAdvanced ? 'is-active' : ''}`}
             aria-label="Opciones avanzadas"
             title="Opciones avanzadas"
@@ -243,6 +232,17 @@ function App() {
       <footer className="control-dock">
         <button
           type="button"
+          className={`subdivision-button mode-${subdivisionMode} ${
+            subdivisionMode !== 'off' ? 'is-active' : ''
+          }`}
+          aria-label={`Subdivisión: ${getSubdivisionLabel(subdivisionMode)}`}
+          title={`Subdivisión: ${getSubdivisionLabel(subdivisionMode)}`}
+          onClick={cycleSubdivisionMode}
+        >
+          {renderSubdivisionIcon(subdivisionMode)}
+        </button>
+        <button
+          type="button"
           className="transport-button"
           aria-label="Tema anterior"
           title="Tema anterior"
@@ -269,39 +269,17 @@ function App() {
           <ChevronRight size={28} />
         </button>
 
-        <div className="subdivision-controls" aria-label="Subdivisiones">
-          <button
-            type="button"
-            className={`subdivision-button ${
-              currentTrack.subdivisions.eighth ? 'is-active' : ''
-            }`}
-            aria-label="Corchea"
-            aria-pressed={currentTrack.subdivisions.eighth}
-            title="Corchea"
-            onClick={() =>
-              updateSubdivision('eighth', !currentTrack.subdivisions.eighth)
-            }
-          >
-            <Music2 size={25} />
-          </button>
-          <button
-            type="button"
-            className={`subdivision-button ${
-              currentTrack.subdivisions.sixteenth ? 'is-active' : ''
-            }`}
-            aria-label="Semicorchea"
-            aria-pressed={currentTrack.subdivisions.sixteenth}
-            title="Semicorchea"
-            onClick={() =>
-              updateSubdivision(
-                'sixteenth',
-                !currentTrack.subdivisions.sixteenth,
-              )
-            }
-          >
-            <Music4 size={25} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`transport-button playlist-button ${
+            showSongs ? 'is-active' : ''
+          }`}
+          aria-label="Lista de temas"
+          title="Lista de temas"
+          onClick={toggleSongs}
+        >
+          <ListMusic size={25} />
+        </button>
       </footer>
 
       {showSongs && (
@@ -522,6 +500,72 @@ function normalizeTracks(tracks: Partial<Track>[]) {
       },
     }
   })
+}
+
+function getSubdivisionMode(track: Track): SubdivisionMode {
+  if (track.subdivisions.eighth && track.subdivisions.sixteenth) {
+    return 'both'
+  }
+
+  if (track.subdivisions.eighth) {
+    return 'eighth'
+  }
+
+  if (track.subdivisions.sixteenth) {
+    return 'sixteenth'
+  }
+
+  return 'off'
+}
+
+function getNextSubdivisionMode(mode: SubdivisionMode): SubdivisionMode {
+  switch (mode) {
+    case 'off':
+      return 'eighth'
+    case 'eighth':
+      return 'sixteenth'
+    case 'sixteenth':
+      return 'both'
+    case 'both':
+      return 'off'
+  }
+}
+
+function getSubdivisionsForMode(mode: SubdivisionMode) {
+  return {
+    eighth: mode === 'eighth' || mode === 'both',
+    sixteenth: mode === 'sixteenth' || mode === 'both',
+  }
+}
+
+function getSubdivisionLabel(mode: SubdivisionMode) {
+  switch (mode) {
+    case 'off':
+      return 'apagado'
+    case 'eighth':
+      return 'corchea'
+    case 'sixteenth':
+      return 'semicorchea'
+    case 'both':
+      return 'corchea y semicorchea'
+  }
+}
+
+function renderSubdivisionIcon(mode: SubdivisionMode) {
+  if (mode === 'both') {
+    return (
+      <span className="subdivision-stack" aria-hidden="true">
+        <Music2 size={19} />
+        <Music4 size={19} />
+      </span>
+    )
+  }
+
+  if (mode === 'sixteenth') {
+    return <Music4 size={25} />
+  }
+
+  return <Music2 size={25} />
 }
 
 function createTrackId() {
