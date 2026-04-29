@@ -4,9 +4,52 @@ import type { PulseEvent, PulseKind, Track } from './types'
 type DropVisualizerProps = {
   color: string
   isPlaying: boolean
+  onPerformanceStats?: (stats: VisualPerformanceStats) => void
   pulse: PulseEvent | null
+  showPerformanceStats: boolean
   track: Track
   visualDelayMs: number
+  visualQuality: VisualQualityMode
+}
+
+export type VisualQualityMode = 'auto' | 'performance' | 'high'
+
+export type VisualPerformanceStats = {
+  fps: number
+  renderMs: number
+  pixelRatio: number
+  canvasWidth: number
+  canvasHeight: number
+  quality: ResolvedVisualQuality
+}
+
+type ResolvedVisualQuality = 'performance' | 'high'
+
+type VisualProfile = {
+  name: ResolvedVisualQuality
+  pixelRatioCap: number
+  idleFrameIntervalMs: number
+  ambientAlphaScale: number
+  waterStep: number
+  waterShadowBlur: number
+  waterLineWidth: number
+  rippleShadowScale: number
+  rippleLifeScale: number
+  rippleRadiusScale: number
+  beatRippleCount: number
+  particleScale: number
+  particleShadowBlur: number
+  maxParticles: number
+  dropShadowBlur: number
+  crownShadowBlur: number
+  flashAlphaScale: number
+  flashGradient: boolean
+}
+
+type StatsBucket = {
+  frames: number
+  lastSampleAt: number
+  renderMsTotal: number
 }
 
 type Ripple = {
@@ -35,20 +78,34 @@ type ScreenFlash = {
 export function DropVisualizer({
   color,
   isPlaying,
+  onPerformanceStats,
   pulse,
+  showPerformanceStats,
   track,
   visualDelayMs,
+  visualQuality,
 }: DropVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animationRef = useRef<number | null>(null)
   const ripplesRef = useRef<Ripple[]>([])
   const particlesRef = useRef<SplashParticle[]>([])
   const flashesRef = useRef<ScreenFlash[]>([])
+  const statsBucketRef = useRef<StatsBucket>({
+    frames: 0,
+    lastSampleAt: 0,
+    renderMsTotal: 0,
+  })
+  const lastDrawAtRef = useRef(0)
+  const pixelRatioRef = useRef(1)
+  const resizeRef = useRef<(() => void) | null>(null)
   const lastBeatAtRef = useRef(0)
   const trackRef = useRef(track)
   const colorRef = useRef(color)
   const isPlayingRef = useRef(isPlaying)
+  const onPerformanceStatsRef = useRef(onPerformanceStats)
+  const showPerformanceStatsRef = useRef(showPerformanceStats)
   const visualDelayMsRef = useRef(visualDelayMs)
+  const visualQualityRef = useRef(visualQuality)
 
   useEffect(() => {
     trackRef.current = track
@@ -61,6 +118,26 @@ export function DropVisualizer({
   useEffect(() => {
     visualDelayMsRef.current = visualDelayMs
   }, [visualDelayMs])
+
+  useEffect(() => {
+    visualQualityRef.current = visualQuality
+    resizeRef.current?.()
+  }, [visualQuality])
+
+  useEffect(() => {
+    showPerformanceStatsRef.current = showPerformanceStats
+    if (!showPerformanceStats) {
+      statsBucketRef.current = {
+        frames: 0,
+        lastSampleAt: 0,
+        renderMsTotal: 0,
+      }
+    }
+  }, [showPerformanceStats])
+
+  useEffect(() => {
+    onPerformanceStatsRef.current = onPerformanceStats
+  }, [onPerformanceStats])
 
   useEffect(() => {
     isPlayingRef.current = isPlaying
@@ -78,6 +155,7 @@ export function DropVisualizer({
     const width = canvas?.clientWidth ?? window.innerWidth
     const height = canvas?.clientHeight ?? window.innerHeight
     const now = performance.now()
+    const profile = getVisualProfile(visualQualityRef.current)
 
     ripplesRef.current.push({
       createdAt: now,
@@ -103,6 +181,8 @@ export function DropVisualizer({
       width / 2,
       height * 0.62,
       now,
+      profile.particleScale,
+      profile.maxParticles,
     )
   }, [pulse])
 
@@ -118,41 +198,74 @@ export function DropVisualizer({
     }
 
     const resize = () => {
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+      const profile = getVisualProfile(visualQualityRef.current)
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, profile.pixelRatioCap)
       const width = canvas.clientWidth
       const height = canvas.clientHeight
       canvas.width = Math.floor(width * pixelRatio)
       canvas.height = Math.floor(height * pixelRatio)
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      pixelRatioRef.current = pixelRatio
     }
 
     const draw = (now: number) => {
+      const profile = getVisualProfile(visualQualityRef.current)
       const width = canvas.clientWidth
       const height = canvas.clientHeight
+      const shouldDraw =
+        isPlayingRef.current ||
+        hasActiveVisualMemory(
+          ripplesRef.current,
+          particlesRef.current,
+          flashesRef.current,
+          now,
+          profile,
+        ) ||
+        now - lastDrawAtRef.current >= profile.idleFrameIntervalMs
 
-      drawScene({
-        context,
-        width,
-        height,
-        now,
-        color: colorRef.current,
-        isPlaying: isPlayingRef.current,
-        lastBeatAt: lastBeatAtRef.current,
-        flashes: flashesRef.current,
-        particles: particlesRef.current,
-        ripples: ripplesRef.current,
-        track: trackRef.current,
-      })
+      if (shouldDraw) {
+        const renderStartedAt = performance.now()
+        drawScene({
+          context,
+          width,
+          height,
+          now,
+          color: colorRef.current,
+          isPlaying: isPlayingRef.current,
+          lastBeatAt: lastBeatAtRef.current,
+          flashes: flashesRef.current,
+          particles: particlesRef.current,
+          profile,
+          ripples: ripplesRef.current,
+          track: trackRef.current,
+        })
+        const renderMs = performance.now() - renderStartedAt
+        lastDrawAtRef.current = now
+
+        updatePerformanceStats(
+          statsBucketRef.current,
+          now,
+          renderMs,
+          pixelRatioRef.current,
+          width,
+          height,
+          profile.name,
+          showPerformanceStatsRef.current,
+          onPerformanceStatsRef.current,
+        )
+      }
 
       animationRef.current = window.requestAnimationFrame(draw)
     }
 
     resize()
+    resizeRef.current = resize
     animationRef.current = window.requestAnimationFrame(draw)
     window.addEventListener('resize', resize)
 
     return () => {
       window.removeEventListener('resize', resize)
+      resizeRef.current = null
       if (animationRef.current !== null) {
         window.cancelAnimationFrame(animationRef.current)
       }
@@ -172,6 +285,7 @@ type DrawSceneOptions = {
   lastBeatAt: number
   flashes: ScreenFlash[]
   particles: SplashParticle[]
+  profile: VisualProfile
   ripples: Ripple[]
   track: Track
 }
@@ -186,6 +300,7 @@ function drawScene({
   lastBeatAt,
   flashes,
   particles,
+  profile,
   ripples,
   track,
 }: DrawSceneOptions) {
@@ -199,16 +314,26 @@ function drawScene({
   context.fillStyle = '#000000'
   context.fillRect(0, 0, width, height)
 
-  drawAmbientField(context, width, height, waterY, color)
-  drawWaterSurface(context, width, waterY, now, color)
-  drawRipples(context, ripples, now, centerX, waterY, width, color)
-  drawSplashParticles(context, particles, now, color)
+  drawAmbientField(context, width, height, waterY, color, profile)
+  drawWaterSurface(context, width, waterY, now, color, profile)
+  drawRipples(context, ripples, now, centerX, waterY, width, color, profile)
+  drawSplashParticles(context, particles, now, color, profile)
 
   if (isPlaying) {
-    drawFallingDrop(context, centerX, waterY, width, height, beatProgress, now, color)
+    drawFallingDrop(
+      context,
+      centerX,
+      waterY,
+      width,
+      height,
+      beatProgress,
+      now,
+      color,
+      profile,
+    )
   }
 
-  drawImpactCrown(context, centerX, waterY, beatAge, color)
+  drawImpactCrown(context, centerX, waterY, beatAge, color, profile)
   drawScreenFlashes(
     context,
     flashes,
@@ -219,8 +344,9 @@ function drawScene({
     waterY,
     color,
     track.flashIntensity,
+    profile,
   )
-  pruneVisualMemory(ripples, particles, flashes, now)
+  pruneVisualMemory(ripples, particles, flashes, now, profile)
 }
 
 function drawAmbientField(
@@ -229,11 +355,12 @@ function drawAmbientField(
   height: number,
   waterY: number,
   color: string,
+  profile: VisualProfile,
 ) {
   const radius = Math.max(width, height) * 0.76
   const glow = context.createRadialGradient(width / 2, waterY, 24, width / 2, waterY, radius)
-  glow.addColorStop(0, withAlpha(color, 0.18))
-  glow.addColorStop(0.38, withAlpha(color, 0.055))
+  glow.addColorStop(0, withAlpha(color, 0.18 * profile.ambientAlphaScale))
+  glow.addColorStop(0.38, withAlpha(color, 0.055 * profile.ambientAlphaScale))
   glow.addColorStop(1, 'rgba(0, 0, 0, 0)')
 
   context.fillStyle = glow
@@ -246,16 +373,19 @@ function drawWaterSurface(
   waterY: number,
   now: number,
   color: string,
+  profile: VisualProfile,
 ) {
   context.save()
   context.globalCompositeOperation = 'lighter'
-  context.shadowColor = withAlpha(color, 0.8)
-  context.shadowBlur = 18
-  context.lineWidth = 1.4
+  if (profile.waterShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, 0.8)
+    context.shadowBlur = profile.waterShadowBlur
+  }
+  context.lineWidth = profile.waterLineWidth
   context.strokeStyle = withAlpha(color, 0.72)
   context.beginPath()
 
-  for (let x = 0; x <= width; x += 8) {
+  for (let x = 0; x <= width; x += profile.waterStep) {
     const drift =
       Math.sin(x * 0.012 + now * 0.0011) * 1.9 +
       Math.sin(x * 0.028 - now * 0.0008) * 0.8
@@ -279,30 +409,33 @@ function drawRipples(
   waterY: number,
   width: number,
   color: string,
+  profile: VisualProfile,
 ) {
   context.save()
   context.globalCompositeOperation = 'lighter'
 
   ripples.forEach((ripple) => {
-    const maxAge = ripple.kind === 'beat' ? 2100 : ripple.kind === 'eighth' ? 1100 : 720
+    const maxAge = getRippleMaxAge(ripple.kind, profile)
     const age = now - ripple.createdAt
     if (age < 0 || age > maxAge) {
       return
     }
 
     const progress = age / maxAge
-    const rippleCount = ripple.kind === 'beat' ? 3 : 1
+    const rippleCount = ripple.kind === 'beat' ? profile.beatRippleCount : 1
     const intensity = ripple.kind === 'beat' ? (ripple.accent ? 1 : 0.74) : 0.34
 
     for (let index = 0; index < rippleCount; index += 1) {
       const offset = index * 34
-      const radius = easeOutCubic(progress) * width * 0.48 + offset
+      const radius = (easeOutCubic(progress) * width * 0.48 + offset) * profile.rippleRadiusScale
       const alpha = (1 - progress) ** 1.8 * intensity * (1 - index * 0.22)
       const wobble = Math.sin(progress * 8 + ripple.seed * 10 + index) * 4
 
       context.lineWidth = Math.max(1, 3.2 - index * 0.7)
-      context.shadowBlur = ripple.kind === 'beat' ? 22 : 12
-      context.shadowColor = withAlpha(color, alpha)
+      if (profile.rippleShadowScale > 0) {
+        context.shadowBlur = (ripple.kind === 'beat' ? 22 : 12) * profile.rippleShadowScale
+        context.shadowColor = withAlpha(color, alpha)
+      }
       context.strokeStyle = withAlpha(color, alpha)
       context.beginPath()
       context.ellipse(centerX, waterY + wobble, radius, radius * 0.18, 0, 0, Math.PI * 2)
@@ -318,6 +451,7 @@ function drawSplashParticles(
   particles: SplashParticle[],
   now: number,
   color: string,
+  profile: VisualProfile,
 ) {
   context.save()
   context.globalCompositeOperation = 'lighter'
@@ -335,8 +469,10 @@ function drawSplashParticles(
     const alpha = (1 - progress) ** 1.6
 
     context.fillStyle = withAlpha(color, alpha * 0.78)
-    context.shadowColor = withAlpha(color, alpha)
-    context.shadowBlur = 12
+    if (profile.particleShadowBlur > 0) {
+      context.shadowColor = withAlpha(color, alpha)
+      context.shadowBlur = profile.particleShadowBlur
+    }
     context.beginPath()
     context.arc(x, y, particle.size * (1 - progress * 0.25), 0, Math.PI * 2)
     context.fill()
@@ -354,6 +490,7 @@ function drawFallingDrop(
   beatProgress: number,
   now: number,
   color: string,
+  profile: VisualProfile,
 ) {
   const fallProgress = clamp((beatProgress - 0.08) / 0.92, 0, 1)
   if (fallProgress <= 0 || beatProgress > 0.992) {
@@ -367,7 +504,7 @@ function drawFallingDrop(
   const sway = Math.sin(now * 0.0012) * width * 0.006
   const alpha = clamp(fallProgress * 2.8, 0, 1)
 
-  drawDropShape(context, centerX + sway, y, radius, alpha, color)
+  drawDropShape(context, centerX + sway, y, radius, alpha, color, profile)
 }
 
 function drawDropShape(
@@ -377,12 +514,15 @@ function drawDropShape(
   radius: number,
   alpha: number,
   color: string,
+  profile: VisualProfile,
 ) {
   context.save()
   context.translate(x, y)
   context.globalCompositeOperation = 'lighter'
-  context.shadowColor = withAlpha(color, alpha)
-  context.shadowBlur = 26
+  if (profile.dropShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, alpha)
+    context.shadowBlur = profile.dropShadowBlur
+  }
 
   const gradient = context.createRadialGradient(-radius * 0.32, -radius * 0.2, 1, 0, 0, radius * 1.7)
   gradient.addColorStop(0, 'rgba(255, 255, 255, 0.86)')
@@ -407,6 +547,7 @@ function drawImpactCrown(
   waterY: number,
   beatAge: number,
   color: string,
+  profile: VisualProfile,
 ) {
   if (beatAge > 300) {
     return
@@ -419,8 +560,10 @@ function drawImpactCrown(
   context.save()
   context.globalCompositeOperation = 'lighter'
   context.strokeStyle = withAlpha(color, alpha * 0.84)
-  context.shadowColor = withAlpha(color, alpha)
-  context.shadowBlur = 18
+  if (profile.crownShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, alpha)
+    context.shadowBlur = profile.crownShadowBlur
+  }
   context.lineWidth = 2
   context.beginPath()
   context.ellipse(centerX, waterY - 2, radius, radius * 0.16, 0, 0, Math.PI * 2)
@@ -438,6 +581,7 @@ function drawScreenFlashes(
   waterY: number,
   color: string,
   intensity: number,
+  profile: VisualProfile,
 ) {
   context.save()
 
@@ -460,11 +604,15 @@ function drawScreenFlashes(
         : flash.kind === 'eighth'
           ? 0.3
           : 0.12
-    const alpha = baseAlpha * fade * normalizedIntensity
+    const alpha = baseAlpha * fade * normalizedIntensity * profile.flashAlphaScale
 
     context.globalCompositeOperation = 'source-over'
     context.fillStyle = withAlpha(color, alpha)
     context.fillRect(0, 0, width, height)
+
+    if (!profile.flashGradient) {
+      return
+    }
 
     context.globalCompositeOperation = 'lighter'
     const radius = Math.max(width, height) * (0.18 + progress * 0.9)
@@ -487,8 +635,15 @@ function addSplashParticles(
   x: number,
   y: number,
   now: number,
+  particleScale: number,
+  maxParticles: number,
 ) {
-  const count = kind === 'beat' ? (accent ? 20 : 14) : kind === 'eighth' ? 6 : 3
+  if (particleScale <= 0) {
+    return
+  }
+
+  const baseCount = kind === 'beat' ? (accent ? 20 : 14) : kind === 'eighth' ? 6 : 3
+  const count = Math.max(1, Math.round(baseCount * particleScale))
   const speedBase = kind === 'beat' ? (accent ? 300 : 230) : 130
 
   for (let index = 0; index < count; index += 1) {
@@ -501,8 +656,14 @@ function addSplashParticles(
       y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      size: kind === 'beat' ? 1.8 + Math.random() * 2.4 : 1.2 + Math.random() * 1.4,
+      size:
+        (kind === 'beat' ? 1.8 + Math.random() * 2.4 : 1.2 + Math.random() * 1.4) *
+        clamp(0.72 + particleScale * 0.28, 0.72, 1),
     })
+  }
+
+  if (particles.length > maxParticles) {
+    particles.splice(0, particles.length - maxParticles)
   }
 }
 
@@ -511,30 +672,174 @@ function pruneVisualMemory(
   particles: SplashParticle[],
   flashes: ScreenFlash[],
   now: number,
+  profile: VisualProfile,
 ) {
-  const activeRipples = ripples.filter((ripple) => now - ripple.createdAt < 2200)
+  const activeRipples = ripples.filter(
+    (ripple) => now - ripple.createdAt < getRippleMaxAge(ripple.kind, profile) + 80,
+  )
   const activeParticles = particles.filter((particle) => now - particle.createdAt < particle.life)
-  const activeFlashes = flashes.filter((flash) => now - flash.createdAt < 800)
+  const activeFlashes = flashes.filter((flash) => now - flash.createdAt < getFlashDuration(flash.kind))
 
   ripples.splice(0, ripples.length, ...activeRipples)
   particles.splice(0, particles.length, ...activeParticles)
   flashes.splice(0, flashes.length, ...activeFlashes)
 }
 
+function hasActiveVisualMemory(
+  ripples: Ripple[],
+  particles: SplashParticle[],
+  flashes: ScreenFlash[],
+  now: number,
+  profile: VisualProfile,
+) {
+  return (
+    ripples.some((ripple) => now - ripple.createdAt < getRippleMaxAge(ripple.kind, profile)) ||
+    particles.some((particle) => now - particle.createdAt < particle.life) ||
+    flashes.some((flash) => now - flash.createdAt < getFlashDuration(flash.kind))
+  )
+}
+
+function updatePerformanceStats(
+  bucket: StatsBucket,
+  now: number,
+  renderMs: number,
+  pixelRatio: number,
+  width: number,
+  height: number,
+  quality: ResolvedVisualQuality,
+  enabled: boolean,
+  onStats?: (stats: VisualPerformanceStats) => void,
+) {
+  if (!enabled || !onStats) {
+    return
+  }
+
+  if (bucket.lastSampleAt === 0) {
+    bucket.lastSampleAt = now
+  }
+
+  bucket.frames += 1
+  bucket.renderMsTotal += renderMs
+
+  const elapsedMs = now - bucket.lastSampleAt
+  if (elapsedMs < 700) {
+    return
+  }
+
+  onStats({
+    fps: Math.round((bucket.frames * 1000) / elapsedMs),
+    renderMs: Number((bucket.renderMsTotal / bucket.frames).toFixed(1)),
+    pixelRatio: Number(pixelRatio.toFixed(2)),
+    canvasWidth: Math.round(width * pixelRatio),
+    canvasHeight: Math.round(height * pixelRatio),
+    quality,
+  })
+
+  bucket.frames = 0
+  bucket.lastSampleAt = now
+  bucket.renderMsTotal = 0
+}
+
+function getVisualProfile(mode: VisualQualityMode): VisualProfile {
+  const resolvedMode = mode === 'auto' ? resolveAutoQuality() : mode
+
+  if (resolvedMode === 'performance') {
+    return performanceProfile
+  }
+
+  return highProfile
+}
+
+function resolveAutoQuality(): ResolvedVisualQuality {
+  const userAgent = navigator.userAgent
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+  const mobileUserAgent = /Android|iPhone|iPad|iPod/i.test(userAgent)
+
+  return coarsePointer || mobileUserAgent ? 'performance' : 'high'
+}
+
+function getRippleMaxAge(kind: PulseKind, profile: VisualProfile) {
+  const baseAge = kind === 'beat' ? 2100 : kind === 'eighth' ? 1100 : 720
+  return baseAge * profile.rippleLifeScale
+}
+
+function getFlashDuration(kind: PulseKind) {
+  return kind === 'beat' ? 760 : kind === 'eighth' ? 360 : 190
+}
+
+const highProfile: VisualProfile = {
+  name: 'high',
+  pixelRatioCap: 2,
+  idleFrameIntervalMs: 260,
+  ambientAlphaScale: 1,
+  waterStep: 8,
+  waterShadowBlur: 18,
+  waterLineWidth: 1.4,
+  rippleShadowScale: 1,
+  rippleLifeScale: 1,
+  rippleRadiusScale: 1,
+  beatRippleCount: 3,
+  particleScale: 1,
+  particleShadowBlur: 12,
+  maxParticles: 90,
+  dropShadowBlur: 26,
+  crownShadowBlur: 18,
+  flashAlphaScale: 1,
+  flashGradient: true,
+}
+
+const performanceProfile: VisualProfile = {
+  name: 'performance',
+  pixelRatioCap: 1,
+  idleFrameIntervalMs: 420,
+  ambientAlphaScale: 0.7,
+  waterStep: 18,
+  waterShadowBlur: 0,
+  waterLineWidth: 1.1,
+  rippleShadowScale: 0,
+  rippleLifeScale: 0.72,
+  rippleRadiusScale: 0.88,
+  beatRippleCount: 2,
+  particleScale: 0.45,
+  particleShadowBlur: 0,
+  maxParticles: 26,
+  dropShadowBlur: 8,
+  crownShadowBlur: 0,
+  flashAlphaScale: 0.92,
+  flashGradient: false,
+}
+
+const colorChannelCache = new Map<string, { red: number; green: number; blue: number }>()
+
 function withAlpha(hex: string, alpha: number) {
-  const normalized = hex.replace('#', '')
-  const full = normalized.length === 3
-    ? normalized
-        .split('')
-        .map((item) => item + item)
-        .join('')
-    : normalized
-  const value = Number.parseInt(full, 16)
-  const red = (value >> 16) & 255
-  const green = (value >> 8) & 255
-  const blue = value & 255
+  const { red, green, blue } = getColorChannels(hex)
 
   return `rgba(${red}, ${green}, ${blue}, ${clamp(alpha, 0, 1)})`
+}
+
+function getColorChannels(hex: string) {
+  const cached = colorChannelCache.get(hex)
+  if (cached) {
+    return cached
+  }
+
+  const normalized = hex.replace('#', '')
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((item) => item + item)
+          .join('')
+      : normalized
+  const value = Number.parseInt(full, 16)
+  const channels = {
+    red: (value >> 16) & 255,
+    green: (value >> 8) & 255,
+    blue: value & 255,
+  }
+
+  colorChannelCache.set(hex, channels)
+  return channels
 }
 
 function clamp(value: number, min: number, max: number) {

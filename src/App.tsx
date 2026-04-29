@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DragEvent } from 'react'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
+import type { VisualPerformanceStats, VisualQualityMode } from './DropVisualizer'
 import { useMetronome } from './useMetronome'
 import { DEFAULT_TRACKS, METERS } from './types'
 import type { Track } from './types'
@@ -30,11 +31,21 @@ type SyncSettings = {
   delayMs: number
 }
 
+type VisualSettings = {
+  quality: VisualQualityMode
+  showStats: boolean
+}
+
 function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(() =>
     readStoredSyncSettings(),
   )
+  const [visualSettings, setVisualSettings] = useState<VisualSettings>(() =>
+    readStoredVisualSettings(),
+  )
+  const [performanceStats, setPerformanceStats] =
+    useState<VisualPerformanceStats | null>(null)
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -56,6 +67,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('gota.sync', JSON.stringify(syncSettings))
   }, [syncSettings])
+
+  useEffect(() => {
+    window.localStorage.setItem('gota.visual', JSON.stringify(visualSettings))
+  }, [visualSettings])
 
   const beatPips = useMemo(() => {
     return Array.from({ length: currentTrack.meter.beats }, (_, index) => index + 1)
@@ -205,14 +220,35 @@ function App() {
     }))
   }
 
+  const updateVisualQuality = (quality: VisualQualityMode) => {
+    setVisualSettings((settings) => ({
+      ...settings,
+      quality,
+    }))
+  }
+
+  const togglePerformanceStats = () => {
+    if (visualSettings.showStats) {
+      setPerformanceStats(null)
+    }
+
+    setVisualSettings((settings) => ({
+      ...settings,
+      showStats: !settings.showStats,
+    }))
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell quality-${visualSettings.quality}`}>
       <DropVisualizer
         color={currentTrack.color}
         isPlaying={metronome.isPlaying}
+        onPerformanceStats={setPerformanceStats}
         pulse={metronome.pulse}
+        showPerformanceStats={visualSettings.showStats}
         track={currentTrack}
         visualDelayMs={effectiveVisualDelayMs}
+        visualQuality={visualSettings.quality}
       />
       <div className="vignette" />
 
@@ -256,6 +292,18 @@ function App() {
           ))}
         </div>
       </section>
+
+      {visualSettings.showStats && performanceStats && (
+        <div className="perf-overlay" aria-live="polite">
+          <strong>{performanceStats.fps} FPS</strong>
+          <span>{performanceStats.renderMs} ms</span>
+          <small>
+            DPR {performanceStats.pixelRatio} - {performanceStats.canvasWidth}x
+            {performanceStats.canvasHeight} -{' '}
+            {performanceStats.quality === 'performance' ? '60fps' : 'alta'}
+          </small>
+        </div>
+      )}
 
       <footer className="control-dock">
         <button
@@ -504,6 +552,35 @@ function App() {
             />
           </div>
 
+          <div className="field global-field">
+            <span>Rendimiento visual</span>
+            <select
+              value={visualSettings.quality}
+              onChange={(event) =>
+                updateVisualQuality(event.currentTarget.value as VisualQualityMode)
+              }
+            >
+              <option value="auto">Auto</option>
+              <option value="performance">60 FPS</option>
+              <option value="high">Alta calidad</option>
+            </select>
+            <div className="sync-row">
+              <button
+                type="button"
+                className={`switch-button ${
+                  visualSettings.showStats ? 'is-enabled' : ''
+                }`}
+                aria-pressed={visualSettings.showStats}
+                onClick={togglePerformanceStats}
+              >
+                Monitor FPS
+              </button>
+              <output className="number-output">
+                {performanceStats ? `${performanceStats.fps} FPS` : '--'}
+              </output>
+            </div>
+          </div>
+
           <button
             type="button"
             className="panel-command"
@@ -551,6 +628,29 @@ function readStoredSyncSettings(): SyncSettings {
     return {
       enabled: false,
       delayMs: 180,
+    }
+  }
+}
+
+function readStoredVisualSettings(): VisualSettings {
+  const rawSettings = window.localStorage.getItem('gota.visual')
+  if (!rawSettings) {
+    return {
+      quality: 'auto',
+      showStats: false,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(rawSettings) as Partial<VisualSettings>
+    return {
+      quality: isVisualQualityMode(parsed.quality) ? parsed.quality : 'auto',
+      showStats: Boolean(parsed.showStats),
+    }
+  } catch {
+    return {
+      quality: 'auto',
+      showStats: false,
     }
   }
 }
@@ -664,6 +764,10 @@ function clampVisualDelay(value: number) {
   }
 
   return Math.min(350, Math.max(0, Math.round(value / 5) * 5))
+}
+
+function isVisualQualityMode(value: unknown): value is VisualQualityMode {
+  return value === 'auto' || value === 'performance' || value === 'high'
 }
 
 function clampBpm(value: number) {

@@ -31,7 +31,8 @@
 .top-bar,
 .tempo-readout,
 .control-dock,
-.side-panel {
+.side-panel,
+.perf-overlay {
   position: fixed;
   z-index: 2;
 }
@@ -165,6 +166,32 @@
   place-items: center;
   transform: translate(-50%, -56%);
   pointer-events: none;
+}
+
+.perf-overlay {
+  left: max(18px, env(safe-area-inset-left));
+  bottom: calc(max(22px, env(safe-area-inset-bottom)) + 96px);
+  display: grid;
+  gap: 2px;
+  min-width: 118px;
+  padding: 8px 10px;
+  color: rgba(244, 255, 232, 0.82);
+  background: rgba(0, 0, 0, 0.48);
+  border-left: 2px solid #d8ff32;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.perf-overlay strong {
+  color: #d8ff32;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.perf-overlay span,
+.perf-overlay small {
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .bpm-number {
@@ -405,6 +432,12 @@
   border-top: 1px solid rgba(244, 255, 232, 0.12);
 }
 
+.global-field {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(244, 255, 232, 0.12);
+}
+
 .field-row {
   display: grid;
   grid-template-columns: 1fr 78px;
@@ -457,6 +490,22 @@
   font-weight: 720;
 }
 
+.app-shell.quality-performance .icon-button,
+.app-shell.quality-performance .transport-button,
+.app-shell.quality-performance .subdivision-button,
+.app-shell.quality-performance .song-tool,
+.app-shell.quality-performance .side-panel {
+  backdrop-filter: none;
+}
+
+.app-shell.quality-performance .icon-button,
+.app-shell.quality-performance .transport-button,
+.app-shell.quality-performance .subdivision-button {
+  box-shadow:
+    inset 0 0 16px rgba(216, 255, 50, 0.05),
+    0 8px 24px rgba(0, 0, 0, 0.26);
+}
+
 @media (max-width: 760px) {
   .top-bar {
     left: max(16px, env(safe-area-inset-left));
@@ -506,6 +555,26 @@
     background: linear-gradient(90deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.84) 24%, rgba(0, 0, 0, 0.92));
   }
 
+  .icon-button,
+  .transport-button,
+  .subdivision-button,
+  .song-tool,
+  .side-panel {
+    backdrop-filter: none;
+  }
+
+  .icon-button,
+  .transport-button,
+  .subdivision-button {
+    box-shadow:
+      inset 0 0 16px rgba(216, 255, 50, 0.05),
+      0 8px 24px rgba(0, 0, 0, 0.26);
+  }
+
+  .perf-overlay {
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 88px);
+  }
+
   .song-panel + .advanced-panel {
     right: 0;
   }
@@ -521,5 +590,15 @@
   .song-tool {
     width: 32px;
     height: 32px;
+  }
+}
+
+@media (pointer: coarse) {
+  .icon-button,
+  .transport-button,
+  .subdivision-button,
+  .song-tool,
+  .side-panel {
+    backdrop-filter: none;
   }
 }
