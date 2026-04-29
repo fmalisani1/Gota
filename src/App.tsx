@@ -25,8 +25,16 @@ import type { Track } from './types'
 
 type SubdivisionMode = 'off' | 'eighth' | 'sixteenth' | 'both'
 
+type SyncSettings = {
+  enabled: boolean
+  delayMs: number
+}
+
 function App() {
   const [tracks, setTracks] = useState<Track[]>(() => readStoredTracks())
+  const [syncSettings, setSyncSettings] = useState<SyncSettings>(() =>
+    readStoredSyncSettings(),
+  )
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -38,11 +46,16 @@ function App() {
   )
   const currentTrack = tracks[currentIndex] ?? tracks[0]
   const subdivisionMode = getSubdivisionMode(currentTrack)
-  const metronome = useMetronome(currentTrack)
+  const effectiveVisualDelayMs = syncSettings.enabled ? syncSettings.delayMs : 0
+  const metronome = useMetronome(currentTrack, effectiveVisualDelayMs)
 
   useEffect(() => {
     window.localStorage.setItem('gota.tracks', JSON.stringify(tracks))
   }, [tracks])
+
+  useEffect(() => {
+    window.localStorage.setItem('gota.sync', JSON.stringify(syncSettings))
+  }, [syncSettings])
 
   const beatPips = useMemo(() => {
     return Array.from({ length: currentTrack.meter.beats }, (_, index) => index + 1)
@@ -178,6 +191,20 @@ function App() {
     setShowSongs(false)
   }
 
+  const toggleSyncDelay = () => {
+    setSyncSettings((settings) => ({
+      ...settings,
+      enabled: !settings.enabled,
+    }))
+  }
+
+  const updateSyncDelay = (delayMs: number) => {
+    setSyncSettings((settings) => ({
+      ...settings,
+      delayMs: clampVisualDelay(delayMs),
+    }))
+  }
+
   return (
     <div className="app-shell">
       <DropVisualizer
@@ -185,6 +212,7 @@ function App() {
         isPlaying={metronome.isPlaying}
         pulse={metronome.pulse}
         track={currentTrack}
+        visualDelayMs={effectiveVisualDelayMs}
       />
       <div className="vignette" />
 
@@ -449,6 +477,33 @@ function App() {
             />
           </label>
 
+          <div className="field sync-field">
+            <span>Sync Bluetooth</span>
+            <div className="sync-row">
+              <button
+                type="button"
+                className={`switch-button ${
+                  syncSettings.enabled ? 'is-enabled' : ''
+                }`}
+                aria-pressed={syncSettings.enabled}
+                onClick={toggleSyncDelay}
+              >
+                {syncSettings.enabled ? 'Activo' : 'Apagado'}
+              </button>
+              <output className="number-output">{syncSettings.delayMs} ms</output>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="350"
+              step="5"
+              value={syncSettings.delayMs}
+              onChange={(event) =>
+                updateSyncDelay(Number(event.currentTarget.value))
+              }
+            />
+          </div>
+
           <button
             type="button"
             className="panel-command"
@@ -474,6 +529,29 @@ function readStoredTracks() {
     return parsed.length > 0 ? normalizeTracks(parsed) : DEFAULT_TRACKS
   } catch {
     return DEFAULT_TRACKS
+  }
+}
+
+function readStoredSyncSettings(): SyncSettings {
+  const rawSettings = window.localStorage.getItem('gota.sync')
+  if (!rawSettings) {
+    return {
+      enabled: false,
+      delayMs: 180,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(rawSettings) as Partial<SyncSettings>
+    return {
+      enabled: Boolean(parsed.enabled),
+      delayMs: clampVisualDelay(parsed.delayMs ?? 180),
+    }
+  } catch {
+    return {
+      enabled: false,
+      delayMs: 180,
+    }
   }
 }
 
@@ -578,6 +656,14 @@ function clampFlashIntensity(value: number) {
   }
 
   return Math.min(2, Math.max(0, Number(value.toFixed(2))))
+}
+
+function clampVisualDelay(value: number) {
+  if (Number.isNaN(value)) {
+    return 180
+  }
+
+  return Math.min(350, Math.max(0, Math.round(value / 5) * 5))
 }
 
 function clampBpm(value: number) {

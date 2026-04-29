@@ -8,9 +8,8 @@ type TransportState = {
 
 const lookaheadMs = 25
 const scheduleAheadSeconds = 0.12
-const visualLatencyMs = 0
 
-export function useMetronome(track: Track) {
+export function useMetronome(track: Track, visualDelayMs = 0) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [pulse, setPulse] = useState<PulseEvent | null>(null)
   const [transport, setTransport] = useState<TransportState>({
@@ -25,10 +24,15 @@ export function useMetronome(track: Track) {
   const pulseIdRef = useRef(0)
   const visualTimersRef = useRef<number[]>([])
   const trackRef = useRef(track)
+  const visualDelayMsRef = useRef(visualDelayMs)
 
   useEffect(() => {
     trackRef.current = track
   }, [track])
+
+  useEffect(() => {
+    visualDelayMsRef.current = visualDelayMs
+  }, [visualDelayMs])
 
   const clearVisualTimers = useCallback(() => {
     visualTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
@@ -62,7 +66,7 @@ export function useMetronome(track: Track) {
 
       const delayMs = Math.max(
         0,
-        (audioTime - context.currentTime) * 1000 + visualLatencyMs,
+        (audioTime - context.currentTime) * 1000 + visualDelayMsRef.current,
       )
       const timerId = window.setTimeout(() => {
         const nextPulse: PulseEvent = {

@@ -6,6 +6,7 @@ type DropVisualizerProps = {
   isPlaying: boolean
   pulse: PulseEvent | null
   track: Track
+  visualDelayMs: number
 }
 
 type Ripple = {
@@ -36,6 +37,7 @@ export function DropVisualizer({
   isPlaying,
   pulse,
   track,
+  visualDelayMs,
 }: DropVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animationRef = useRef<number | null>(null)
@@ -46,6 +48,7 @@ export function DropVisualizer({
   const trackRef = useRef(track)
   const colorRef = useRef(color)
   const isPlayingRef = useRef(isPlaying)
+  const visualDelayMsRef = useRef(visualDelayMs)
 
   useEffect(() => {
     trackRef.current = track
@@ -56,11 +59,15 @@ export function DropVisualizer({
   }, [color, track])
 
   useEffect(() => {
+    visualDelayMsRef.current = visualDelayMs
+  }, [visualDelayMs])
+
+  useEffect(() => {
     isPlayingRef.current = isPlaying
     if (isPlaying) {
-      lastBeatAtRef.current = performance.now()
+      lastBeatAtRef.current = performance.now() + visualDelayMsRef.current
     }
-  }, [isPlaying])
+  }, [isPlaying, visualDelayMs])
 
   useEffect(() => {
     if (!pulse) {
