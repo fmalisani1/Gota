@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .playwright-*.png
+.flash-*.png
 
 # Editor directories and files
 .vscode/*

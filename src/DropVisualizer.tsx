@@ -25,6 +25,12 @@ type SplashParticle = {
   size: number
 }
 
+type ScreenFlash = {
+  createdAt: number
+  kind: PulseKind
+  accent: boolean
+}
+
 export function DropVisualizer({
   color,
   isPlaying,
@@ -35,6 +41,7 @@ export function DropVisualizer({
   const animationRef = useRef<number | null>(null)
   const ripplesRef = useRef<Ripple[]>([])
   const particlesRef = useRef<SplashParticle[]>([])
+  const flashesRef = useRef<ScreenFlash[]>([])
   const lastBeatAtRef = useRef(0)
   const trackRef = useRef(track)
   const colorRef = useRef(color)
@@ -70,6 +77,12 @@ export function DropVisualizer({
       kind: pulse.kind,
       accent: pulse.accent,
       seed: Math.random(),
+    })
+
+    flashesRef.current.push({
+      createdAt: now,
+      kind: pulse.kind,
+      accent: pulse.accent,
     })
 
     if (pulse.kind === 'beat') {
@@ -118,6 +131,7 @@ export function DropVisualizer({
         color: colorRef.current,
         isPlaying: isPlayingRef.current,
         lastBeatAt: lastBeatAtRef.current,
+        flashes: flashesRef.current,
         particles: particlesRef.current,
         ripples: ripplesRef.current,
         track: trackRef.current,
@@ -149,6 +163,7 @@ type DrawSceneOptions = {
   color: string
   isPlaying: boolean
   lastBeatAt: number
+  flashes: ScreenFlash[]
   particles: SplashParticle[]
   ripples: Ripple[]
   track: Track
@@ -162,6 +177,7 @@ function drawScene({
   color,
   isPlaying,
   lastBeatAt,
+  flashes,
   particles,
   ripples,
   track,
@@ -188,7 +204,8 @@ function drawScene({
   }
 
   drawImpactCrown(context, centerX, waterY, beatAge, color)
-  pruneVisualMemory(ripples, particles, now)
+  drawScreenFlashes(context, flashes, now, width, height, centerX, waterY, color)
+  pruneVisualMemory(ripples, particles, flashes, now)
 }
 
 function drawAmbientField(
@@ -407,6 +424,55 @@ function drawImpactCrown(
   context.restore()
 }
 
+function drawScreenFlashes(
+  context: CanvasRenderingContext2D,
+  flashes: ScreenFlash[],
+  now: number,
+  width: number,
+  height: number,
+  centerX: number,
+  waterY: number,
+  color: string,
+) {
+  context.save()
+
+  flashes.forEach((flash) => {
+    const age = now - flash.createdAt
+    const duration = flash.kind === 'beat' ? 760 : flash.kind === 'eighth' ? 360 : 190
+    if (age < 0 || age > duration) {
+      return
+    }
+
+    const progress = age / duration
+    const fade = (1 - progress) ** 2.4
+    const baseAlpha =
+      flash.kind === 'beat'
+        ? flash.accent
+          ? 0.82
+          : 0.64
+        : flash.kind === 'eighth'
+          ? 0.3
+          : 0.12
+    const alpha = baseAlpha * fade
+
+    context.globalCompositeOperation = 'source-over'
+    context.fillStyle = withAlpha(color, alpha)
+    context.fillRect(0, 0, width, height)
+
+    context.globalCompositeOperation = 'lighter'
+    const radius = Math.max(width, height) * (0.18 + progress * 0.9)
+    const burst = context.createRadialGradient(centerX, waterY, 0, centerX, waterY, radius)
+    burst.addColorStop(0, withAlpha(color, alpha * 2.8))
+    burst.addColorStop(0.24, withAlpha(color, alpha * 1.5))
+    burst.addColorStop(0.58, withAlpha(color, alpha * 0.42))
+    burst.addColorStop(1, withAlpha(color, 0))
+    context.fillStyle = burst
+    context.fillRect(0, 0, width, height)
+  })
+
+  context.restore()
+}
+
 function addSplashParticles(
   particles: SplashParticle[],
   kind: PulseKind,
@@ -436,13 +502,16 @@ function addSplashParticles(
 function pruneVisualMemory(
   ripples: Ripple[],
   particles: SplashParticle[],
+  flashes: ScreenFlash[],
   now: number,
 ) {
   const activeRipples = ripples.filter((ripple) => now - ripple.createdAt < 2200)
   const activeParticles = particles.filter((particle) => now - particle.createdAt < particle.life)
+  const activeFlashes = flashes.filter((flash) => now - flash.createdAt < 540)
 
   ripples.splice(0, ripples.length, ...activeRipples)
   particles.splice(0, particles.length, ...activeParticles)
+  flashes.splice(0, flashes.length, ...activeFlashes)
 }
 
 function withAlpha(hex: string, alpha: number) {
