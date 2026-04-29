@@ -1,14 +1,22 @@
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Droplets,
+  GripVertical,
   ListMusic,
   Maximize2,
+  Music2,
+  Music4,
   Pause,
   Play,
+  Plus,
   SlidersHorizontal,
+  Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import type { DragEvent } from 'react'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
 import { useMetronome } from './useMetronome'
@@ -20,6 +28,7 @@ function App() {
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null)
 
   const currentIndex = Math.max(
     0,
@@ -63,6 +72,91 @@ function App() {
     })
   }
 
+  const addTrack = () => {
+    const newTrack: Track = {
+      id: createTrackId(),
+      title: `Tema ${tracks.length + 1}`,
+      bpm: currentTrack.bpm,
+      meter: currentTrack.meter,
+      color: currentTrack.color,
+      flashIntensity: currentTrack.flashIntensity,
+      subdivisions: {
+        ...currentTrack.subdivisions,
+      },
+    }
+
+    setTracks((items) => [...items, newTrack])
+    setCurrentTrackId(newTrack.id)
+  }
+
+  const deleteTrack = (trackId: string) => {
+    if (tracks.length <= 1) {
+      return
+    }
+
+    const deletedIndex = tracks.findIndex((track) => track.id === trackId)
+    const nextTracks = tracks.filter((track) => track.id !== trackId)
+    setTracks(nextTracks)
+
+    if (currentTrackId === trackId) {
+      const nextIndex = Math.min(Math.max(deletedIndex, 0), nextTracks.length - 1)
+      setCurrentTrackId(nextTracks[nextIndex].id)
+    }
+  }
+
+  const moveTrack = (trackId: string, direction: -1 | 1) => {
+    const currentPosition = tracks.findIndex((track) => track.id === trackId)
+    const nextPosition = currentPosition + direction
+
+    if (currentPosition < 0 || nextPosition < 0 || nextPosition >= tracks.length) {
+      return
+    }
+
+    setTracks((items) => {
+      const reordered = [...items]
+      const [movedTrack] = reordered.splice(currentPosition, 1)
+      reordered.splice(nextPosition, 0, movedTrack)
+      return reordered
+    })
+  }
+
+  const handleDragStart = (
+    event: DragEvent<HTMLDivElement>,
+    trackId: string,
+  ) => {
+    setDraggingTrackId(trackId)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', trackId)
+  }
+
+  const handleTrackDrop = (
+    event: DragEvent<HTMLDivElement>,
+    targetTrackId: string,
+  ) => {
+    event.preventDefault()
+    const draggedId = event.dataTransfer.getData('text/plain') || draggingTrackId
+    setDraggingTrackId(null)
+
+    if (!draggedId || draggedId === targetTrackId) {
+      return
+    }
+
+    setTracks((items) => {
+      const draggedIndex = items.findIndex((track) => track.id === draggedId)
+      const targetIndex = items.findIndex((track) => track.id === targetTrackId)
+
+      if (draggedIndex < 0 || targetIndex < 0) {
+        return items
+      }
+
+      const reordered = [...items]
+      const [draggedTrack] = reordered.splice(draggedIndex, 1)
+      const insertAt = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex
+      reordered.splice(insertAt, 0, draggedTrack)
+      return reordered
+    })
+  }
+
   const goToTrack = (direction: -1 | 1) => {
     const nextIndex = (currentIndex + direction + tracks.length) % tracks.length
     setCurrentTrackId(tracks[nextIndex].id)
@@ -74,6 +168,16 @@ function App() {
     } else {
       void document.exitFullscreen()
     }
+  }
+
+  const toggleSongs = () => {
+    setShowSongs((value) => !value)
+    setShowAdvanced(false)
+  }
+
+  const toggleAdvanced = () => {
+    setShowAdvanced((value) => !value)
+    setShowSongs(false)
   }
 
   return (
@@ -105,7 +209,7 @@ function App() {
             className={`icon-button ${showSongs ? 'is-active' : ''}`}
             aria-label="Lista de temas"
             title="Lista de temas"
-            onClick={() => setShowSongs((value) => !value)}
+            onClick={toggleSongs}
           >
             <ListMusic size={21} />
           </button>
@@ -114,7 +218,7 @@ function App() {
             className={`icon-button ${showAdvanced ? 'is-active' : ''}`}
             aria-label="Opciones avanzadas"
             title="Opciones avanzadas"
-            onClick={() => setShowAdvanced((value) => !value)}
+            onClick={toggleAdvanced}
           >
             <SlidersHorizontal size={21} />
           </button>
@@ -165,35 +269,38 @@ function App() {
           <ChevronRight size={28} />
         </button>
 
-        <div className="subdivision-controls">
-          <label
-            className={`subdivision-toggle ${
+        <div className="subdivision-controls" aria-label="Subdivisiones">
+          <button
+            type="button"
+            className={`subdivision-button ${
               currentTrack.subdivisions.eighth ? 'is-active' : ''
             }`}
+            aria-label="Corchea"
+            aria-pressed={currentTrack.subdivisions.eighth}
+            title="Corchea"
+            onClick={() =>
+              updateSubdivision('eighth', !currentTrack.subdivisions.eighth)
+            }
           >
-            <input
-              type="checkbox"
-              checked={currentTrack.subdivisions.eighth}
-              onChange={(event) =>
-                updateSubdivision('eighth', event.currentTarget.checked)
-              }
-            />
-            Corchea
-          </label>
-          <label
-            className={`subdivision-toggle ${
+            <Music2 size={25} />
+          </button>
+          <button
+            type="button"
+            className={`subdivision-button ${
               currentTrack.subdivisions.sixteenth ? 'is-active' : ''
             }`}
+            aria-label="Semicorchea"
+            aria-pressed={currentTrack.subdivisions.sixteenth}
+            title="Semicorchea"
+            onClick={() =>
+              updateSubdivision(
+                'sixteenth',
+                !currentTrack.subdivisions.sixteenth,
+              )
+            }
           >
-            <input
-              type="checkbox"
-              checked={currentTrack.subdivisions.sixteenth}
-              onChange={(event) =>
-                updateSubdivision('sixteenth', event.currentTarget.checked)
-              }
-            />
-            Semicorchea
-          </label>
+            <Music4 size={25} />
+          </button>
         </div>
       </footer>
 
@@ -201,24 +308,73 @@ function App() {
         <aside className="side-panel song-panel" aria-label="Temas">
           <div className="panel-title">Temas</div>
           <div className="song-list">
-            {tracks.map((track) => (
-              <button
-                type="button"
+            {tracks.map((track, index) => (
+              <div
                 key={track.id}
                 className={`song-row ${
                   track.id === currentTrack.id ? 'is-selected' : ''
-                }`}
-                onClick={() => {
-                  setCurrentTrackId(track.id)
-                  setShowSongs(false)
-                }}
+                } ${draggingTrackId === track.id ? 'is-dragging' : ''}`}
+                draggable
+                onDragStart={(event) => handleDragStart(event, track.id)}
+                onDragEnd={() => setDraggingTrackId(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => handleTrackDrop(event, track.id)}
               >
-                <span>{track.title}</span>
-                <small>
-                  {track.bpm} BPM · {track.meter.label}
-                </small>
-              </button>
+                <button
+                  type="button"
+                  className="song-main"
+                  onClick={() => setCurrentTrackId(track.id)}
+                >
+                  <span>{track.title}</span>
+                  <small>
+                    {track.bpm} BPM - {track.meter.label}
+                  </small>
+                </button>
+                <div className="song-tools">
+                  <span className="song-grip" aria-hidden="true">
+                    <GripVertical size={18} />
+                  </span>
+                  <button
+                    type="button"
+                    className="song-tool"
+                    aria-label={`Subir ${track.title}`}
+                    title="Subir"
+                    disabled={index === 0}
+                    onClick={() => moveTrack(track.id, -1)}
+                  >
+                    <ChevronUp size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="song-tool"
+                    aria-label={`Bajar ${track.title}`}
+                    title="Bajar"
+                    disabled={index === tracks.length - 1}
+                    onClick={() => moveTrack(track.id, 1)}
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="song-tool danger"
+                    aria-label={`Borrar ${track.title}`}
+                    title="Borrar"
+                    disabled={tracks.length <= 1}
+                    onClick={() => deleteTrack(track.id)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
             ))}
+            <button
+              type="button"
+              className="add-track-button"
+              onClick={addTrack}
+            >
+              <Plus size={18} />
+              Agregar tema
+            </button>
           </div>
         </aside>
       )}
@@ -268,6 +424,29 @@ function App() {
           </label>
 
           <label className="field">
+            <span>Brillo de luz</span>
+            <div className="field-row">
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.05"
+                value={currentTrack.flashIntensity}
+                onChange={(event) =>
+                  updateCurrentTrack({
+                    flashIntensity: clampFlashIntensity(
+                      Number(event.currentTarget.value),
+                    ),
+                  })
+                }
+              />
+              <output className="number-output">
+                {Math.round(currentTrack.flashIntensity * 100)}%
+              </output>
+            </div>
+          </label>
+
+          <label className="field">
             <span>Compas</span>
             <select
               value={currentTrack.meter.label}
@@ -313,11 +492,48 @@ function readStoredTracks() {
   }
 
   try {
-    const parsed = JSON.parse(rawTracks) as Track[]
-    return parsed.length > 0 ? parsed : DEFAULT_TRACKS
+    const parsed = JSON.parse(rawTracks) as Partial<Track>[]
+    return parsed.length > 0 ? normalizeTracks(parsed) : DEFAULT_TRACKS
   } catch {
     return DEFAULT_TRACKS
   }
+}
+
+function normalizeTracks(tracks: Partial<Track>[]) {
+  return tracks.map((track, index) => {
+    const fallback = DEFAULT_TRACKS[index] ?? DEFAULT_TRACKS[0]
+    const meter =
+      METERS.find((option) => option.label === track.meter?.label) ??
+      fallback.meter
+
+    return {
+      id: track.id || createTrackId(),
+      title: track.title || fallback.title,
+      bpm: clampBpm(track.bpm ?? fallback.bpm),
+      meter,
+      color: track.color || fallback.color,
+      flashIntensity: clampFlashIntensity(
+        track.flashIntensity ?? fallback.flashIntensity,
+      ),
+      subdivisions: {
+        eighth: track.subdivisions?.eighth ?? fallback.subdivisions.eighth,
+        sixteenth:
+          track.subdivisions?.sixteenth ?? fallback.subdivisions.sixteenth,
+      },
+    }
+  })
+}
+
+function createTrackId() {
+  return window.crypto?.randomUUID?.() ?? `track-${Date.now()}`
+}
+
+function clampFlashIntensity(value: number) {
+  if (Number.isNaN(value)) {
+    return 1
+  }
+
+  return Math.min(2, Math.max(0, Number(value.toFixed(2))))
 }
 
 function clampBpm(value: number) {

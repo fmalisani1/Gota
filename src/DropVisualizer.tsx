@@ -199,12 +199,20 @@ function drawScene({
 
   if (isPlaying) {
     drawFallingDrop(context, centerX, waterY, width, height, beatProgress, now, color)
-  } else {
-    drawIdleDrop(context, centerX, waterY, width, now, color)
   }
 
   drawImpactCrown(context, centerX, waterY, beatAge, color)
-  drawScreenFlashes(context, flashes, now, width, height, centerX, waterY, color)
+  drawScreenFlashes(
+    context,
+    flashes,
+    now,
+    width,
+    height,
+    centerX,
+    waterY,
+    color,
+    track.flashIntensity,
+  )
   pruneVisualMemory(ripples, particles, flashes, now)
 }
 
@@ -355,19 +363,6 @@ function drawFallingDrop(
   drawDropShape(context, centerX + sway, y, radius, alpha, color)
 }
 
-function drawIdleDrop(
-  context: CanvasRenderingContext2D,
-  centerX: number,
-  waterY: number,
-  width: number,
-  now: number,
-  color: string,
-) {
-  const radius = clamp(width * 0.015, 9, 20)
-  const y = waterY - 130 + Math.sin(now * 0.001) * 8
-  drawDropShape(context, centerX, y, radius, 0.62, color)
-}
-
 function drawDropShape(
   context: CanvasRenderingContext2D,
   x: number,
@@ -390,8 +385,10 @@ function drawDropShape(
   context.fillStyle = gradient
   context.beginPath()
   context.moveTo(0, -radius * 1.75)
-  context.bezierCurveTo(radius * 0.9, -radius * 0.8, radius * 1.12, radius * 0.2, 0, radius * 1.42)
-  context.bezierCurveTo(-radius * 1.12, radius * 0.2, -radius * 0.9, -radius * 0.8, 0, -radius * 1.75)
+  context.bezierCurveTo(radius * 0.82, -radius * 0.98, radius * 1.18, -radius * 0.18, radius * 1.08, radius * 0.42)
+  context.bezierCurveTo(radius * 0.96, radius * 1.18, radius * 0.44, radius * 1.56, 0, radius * 1.56)
+  context.bezierCurveTo(-radius * 0.44, radius * 1.56, -radius * 0.96, radius * 1.18, -radius * 1.08, radius * 0.42)
+  context.bezierCurveTo(-radius * 1.18, -radius * 0.18, -radius * 0.82, -radius * 0.98, 0, -radius * 1.75)
   context.closePath()
   context.fill()
   context.restore()
@@ -433,8 +430,11 @@ function drawScreenFlashes(
   centerX: number,
   waterY: number,
   color: string,
+  intensity: number,
 ) {
   context.save()
+
+  const normalizedIntensity = clamp(intensity, 0, 2)
 
   flashes.forEach((flash) => {
     const age = now - flash.createdAt
@@ -453,7 +453,7 @@ function drawScreenFlashes(
         : flash.kind === 'eighth'
           ? 0.3
           : 0.12
-    const alpha = baseAlpha * fade
+    const alpha = baseAlpha * fade * normalizedIntensity
 
     context.globalCompositeOperation = 'source-over'
     context.fillStyle = withAlpha(color, alpha)
@@ -507,7 +507,7 @@ function pruneVisualMemory(
 ) {
   const activeRipples = ripples.filter((ripple) => now - ripple.createdAt < 2200)
   const activeParticles = particles.filter((particle) => now - particle.createdAt < particle.life)
-  const activeFlashes = flashes.filter((flash) => now - flash.createdAt < 540)
+  const activeFlashes = flashes.filter((flash) => now - flash.createdAt < 800)
 
   ripples.splice(0, ripples.length, ...activeRipples)
   particles.splice(0, particles.length, ...activeParticles)

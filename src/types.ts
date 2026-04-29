@@ -17,6 +17,7 @@ export type Track = {
   bpm: number
   meter: MeterOption
   color: string
+  flashIntensity: number
   subdivisions: SubdivisionState
 }
 
@@ -44,6 +45,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 92,
     meter: METERS[0],
     color: '#d8ff32',
+    flashIntensity: 1,
     subdivisions: {
       eighth: true,
       sixteenth: false,
@@ -55,6 +57,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 74,
     meter: METERS[1],
     color: '#a8ff4a',
+    flashIntensity: 1,
     subdivisions: {
       eighth: false,
       sixteenth: false,
@@ -66,6 +69,7 @@ export const DEFAULT_TRACKS: Track[] = [
     bpm: 128,
     meter: METERS[0],
     color: '#d8ff32',
+    flashIntensity: 1,
     subdivisions: {
       eighth: true,
       sixteenth: true,
