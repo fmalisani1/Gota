@@ -4,7 +4,7 @@
   "description": "Metronomo visual inmersivo con una gota sincronizada al pulso.",
   "start_url": ".",
   "scope": ".",
-  "display": "fullscreen",
+  "display": "standalone",
   "orientation": "any",
   "background_color": "#000000",
   "theme_color": "#000000",

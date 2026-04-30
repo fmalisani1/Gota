@@ -6,7 +6,6 @@ import {
   Droplets,
   GripVertical,
   ListMusic,
-  Maximize2,
   Music2,
   Music4,
   Pause,
@@ -224,14 +223,6 @@ function App() {
   const goToTrack = (direction: -1 | 1) => {
     const nextIndex = (currentIndex + direction + tracks.length) % tracks.length
     selectTrack(tracks[nextIndex].id)
-  }
-
-  const requestFullscreen = () => {
-    if (!document.fullscreenElement) {
-      void document.documentElement.requestFullscreen()
-    } else {
-      void document.exitFullscreen()
-    }
   }
 
   const toggleSongs = () => {
@@ -679,15 +670,6 @@ function App() {
               </output>
             </div>
           </div>
-
-          <button
-            type="button"
-            className="panel-command"
-            onClick={requestFullscreen}
-          >
-            <Maximize2 size={18} />
-            Pantalla completa
-          </button>
         </aside>
       )}
     </div>
