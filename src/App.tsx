@@ -18,9 +18,14 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, DragEvent, SetStateAction } from 'react'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
-import type { VisualPerformanceStats, VisualQualityMode } from './DropVisualizer'
+import type {
+  VisualMode,
+  VisualPerformanceStats,
+  VisualQualityMode,
+} from './DropVisualizer'
 import { useMetronome } from './useMetronome'
 import { DEFAULT_TRACKS, METERS } from './types'
 import type { Track } from './types'
@@ -33,6 +38,7 @@ type SyncSettings = {
 }
 
 type VisualSettings = {
+  mode: VisualMode
   quality: VisualQualityMode
   showStats: boolean
 }
@@ -41,6 +47,19 @@ type AudioSettings = {
   muted: boolean
   muteFadeOutSeconds: number
 }
+
+type GotaMediaPlugin = {
+  update: (options: {
+    bpm: number
+    isPlaying: boolean
+    meter: string
+    muted: boolean
+    title: string
+  }) => Promise<void>
+  stop: () => Promise<void>
+}
+
+const GotaMedia = registerPlugin<GotaMediaPlugin>('GotaMedia')
 
 const TRACKS_STORAGE_KEY = 'gota.tracks'
 const TRACKS_STORAGE_VERSION_KEY = 'gota.tracks.version'
@@ -78,6 +97,11 @@ function App() {
     audioSettings.muteFadeOutSeconds,
   )
   useScreenWakeLock(metronome.isPlaying)
+  useNativeMediaSession({
+    currentTrack,
+    isPlaying: metronome.isPlaying,
+    muted: audioSettings.muted,
+  })
 
   useEffect(() => {
     window.localStorage.setItem(TRACKS_STORAGE_KEY, JSON.stringify(tracks))
@@ -263,6 +287,13 @@ function App() {
     }))
   }
 
+  const updateVisualMode = (mode: VisualMode) => {
+    setVisualSettings((settings) => ({
+      ...settings,
+      mode,
+    }))
+  }
+
   const updateVisualQuality = (quality: VisualQualityMode) => {
     setVisualSettings((settings) => ({
       ...settings,
@@ -295,7 +326,9 @@ function App() {
   })
 
   return (
-    <div className={`app-shell quality-${visualSettings.quality}`}>
+    <div
+      className={`app-shell quality-${visualSettings.quality} visual-${visualSettings.mode}`}
+    >
       <DropVisualizer
         color={currentTrack.color}
         isPlaying={metronome.isPlaying}
@@ -304,6 +337,7 @@ function App() {
         showPerformanceStats={visualSettings.showStats}
         track={currentTrack}
         visualDelayMs={effectiveVisualDelayMs}
+        visualMode={visualSettings.mode}
         visualQuality={visualSettings.quality}
       />
       <div className="vignette" />
@@ -581,6 +615,19 @@ function App() {
             />
           </label>
 
+          <label className="field">
+            <span>Visualizacion</span>
+            <select
+              value={visualSettings.mode}
+              onChange={(event) =>
+                updateVisualMode(event.currentTarget.value as VisualMode)
+              }
+            >
+              <option value="drop">Gota</option>
+              <option value="bounce">Pelota</option>
+            </select>
+          </label>
+
           <div className="field">
             <span>Subdivisión</span>
             <div className="subdivision-setting" role="group" aria-label="Subdivisión">
@@ -831,6 +878,48 @@ type NativeMediaKeyControlsOptions = {
   toggleMute: () => void
 }
 
+type NativeMediaSessionOptions = {
+  currentTrack: Track
+  isPlaying: boolean
+  muted: boolean
+}
+
+function useNativeMediaSession({
+  currentTrack,
+  isPlaying,
+  muted,
+}: NativeMediaSessionOptions) {
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return
+    }
+
+    void GotaMedia.update({
+      bpm: currentTrack.bpm,
+      isPlaying,
+      meter: currentTrack.meter.label,
+      muted,
+      title: currentTrack.title,
+    }).catch(() => undefined)
+  }, [
+    currentTrack.bpm,
+    currentTrack.meter.label,
+    currentTrack.title,
+    isPlaying,
+    muted,
+  ])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      return
+    }
+
+    return () => {
+      void GotaMedia.stop().catch(() => undefined)
+    }
+  }, [])
+}
+
 function useNativeMediaKeyControls({
   goToTrack,
   toggleMute,
@@ -983,6 +1072,7 @@ function readStoredVisualSettings(): VisualSettings {
   const rawSettings = window.localStorage.getItem('gota.visual')
   if (!rawSettings) {
     return {
+      mode: 'drop',
       quality: 'auto',
       showStats: false,
     }
@@ -991,11 +1081,13 @@ function readStoredVisualSettings(): VisualSettings {
   try {
     const parsed = JSON.parse(rawSettings) as Partial<VisualSettings>
     return {
+      mode: isVisualMode(parsed.mode) ? parsed.mode : 'drop',
       quality: isVisualQualityMode(parsed.quality) ? parsed.quality : 'auto',
       showStats: Boolean(parsed.showStats),
     }
   } catch {
     return {
+      mode: 'drop',
       quality: 'auto',
       showStats: false,
     }
@@ -1119,6 +1211,10 @@ function formatSeconds(value: number) {
 
 function isVisualQualityMode(value: unknown): value is VisualQualityMode {
   return value === 'auto' || value === 'performance' || value === 'high'
+}
+
+function isVisualMode(value: unknown): value is VisualMode {
+  return value === 'drop' || value === 'bounce'
 }
 
 function clampBpm(value: number) {

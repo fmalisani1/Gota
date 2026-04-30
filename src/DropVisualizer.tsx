@@ -9,8 +9,11 @@ type DropVisualizerProps = {
   showPerformanceStats: boolean
   track: Track
   visualDelayMs: number
+  visualMode: VisualMode
   visualQuality: VisualQualityMode
 }
+
+export type VisualMode = 'drop' | 'bounce'
 
 export type VisualQualityMode = 'auto' | 'performance' | 'high'
 
@@ -83,6 +86,7 @@ export function DropVisualizer({
   showPerformanceStats,
   track,
   visualDelayMs,
+  visualMode,
   visualQuality,
 }: DropVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -105,6 +109,7 @@ export function DropVisualizer({
   const onPerformanceStatsRef = useRef(onPerformanceStats)
   const showPerformanceStatsRef = useRef(showPerformanceStats)
   const visualDelayMsRef = useRef(visualDelayMs)
+  const visualModeRef = useRef(visualMode)
   const visualQualityRef = useRef(visualQuality)
 
   useEffect(() => {
@@ -118,6 +123,10 @@ export function DropVisualizer({
   useEffect(() => {
     visualDelayMsRef.current = visualDelayMs
   }, [visualDelayMs])
+
+  useEffect(() => {
+    visualModeRef.current = visualMode
+  }, [visualMode])
 
   useEffect(() => {
     visualQualityRef.current = visualQuality
@@ -174,16 +183,18 @@ export function DropVisualizer({
       lastBeatAtRef.current = now
     }
 
-    addSplashParticles(
-      particlesRef.current,
-      pulse.kind,
-      pulse.accent,
-      width / 2,
-      height * 0.62,
-      now,
-      profile.particleScale,
-      profile.maxParticles,
-    )
+    if (visualModeRef.current === 'drop') {
+      addSplashParticles(
+        particlesRef.current,
+        pulse.kind,
+        pulse.accent,
+        width / 2,
+        height * 0.62,
+        now,
+        profile.particleScale,
+        profile.maxParticles,
+      )
+    }
   }, [pulse])
 
   useEffect(() => {
@@ -238,6 +249,7 @@ export function DropVisualizer({
           profile,
           ripples: ripplesRef.current,
           track: trackRef.current,
+          visualMode: visualModeRef.current,
         })
         const renderMs = performance.now() - renderStartedAt
         lastDrawAtRef.current = now
@@ -288,6 +300,7 @@ type DrawSceneOptions = {
   profile: VisualProfile
   ripples: Ripple[]
   track: Track
+  visualMode: VisualMode
 }
 
 function drawScene({
@@ -303,8 +316,9 @@ function drawScene({
   profile,
   ripples,
   track,
+  visualMode,
 }: DrawSceneOptions) {
-  const waterY = height * 0.62
+  const surfaceY = height * 0.62
   const centerX = width / 2
   const beatMs = 60000 / track.bpm
   const beatAge = Math.max(0, now - lastBeatAt)
@@ -314,26 +328,40 @@ function drawScene({
   context.fillStyle = '#000000'
   context.fillRect(0, 0, width, height)
 
-  drawAmbientField(context, width, height, waterY, color, profile)
-  drawWaterSurface(context, width, waterY, now, color, profile)
-  drawRipples(context, ripples, now, centerX, waterY, width, color, profile)
-  drawSplashParticles(context, particles, now, color, profile)
+  drawAmbientField(context, width, height, surfaceY, color, profile)
 
-  if (isPlaying) {
-    drawFallingDrop(
-      context,
-      centerX,
-      waterY,
-      width,
-      height,
-      beatProgress,
-      now,
-      color,
-      profile,
-    )
+  if (visualMode === 'bounce') {
+    drawHardSurface(context, width, surfaceY, color, profile)
+    drawSurfaceImpacts(context, ripples, now, centerX, surfaceY, width, color, profile)
+  } else {
+    drawWaterSurface(context, width, surfaceY, now, color, profile)
+    drawRipples(context, ripples, now, centerX, surfaceY, width, color, profile)
+    drawSplashParticles(context, particles, now, color, profile)
   }
 
-  drawImpactCrown(context, centerX, waterY, beatAge, color, profile)
+  if (isPlaying) {
+    if (visualMode === 'bounce') {
+      drawBouncingBall(context, centerX, surfaceY, width, height, beatProgress, color, profile)
+    } else {
+      drawFallingDrop(
+        context,
+        centerX,
+        surfaceY,
+        width,
+        height,
+        beatProgress,
+        now,
+        color,
+        profile,
+      )
+    }
+  }
+
+  if (visualMode === 'bounce') {
+    drawBounceContactGlow(context, centerX, surfaceY, beatAge, width, color, profile)
+  } else {
+    drawImpactCrown(context, centerX, surfaceY, beatAge, color, profile)
+  }
   drawScreenFlashes(
     context,
     flashes,
@@ -341,7 +369,7 @@ function drawScene({
     width,
     height,
     centerX,
-    waterY,
+    surfaceY,
     color,
     track.flashIntensity,
     profile,
@@ -398,6 +426,93 @@ function drawWaterSurface(
   }
 
   context.stroke()
+  context.restore()
+}
+
+function drawHardSurface(
+  context: CanvasRenderingContext2D,
+  width: number,
+  surfaceY: number,
+  color: string,
+  profile: VisualProfile,
+) {
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+
+  const glow = context.createLinearGradient(0, surfaceY - 58, 0, surfaceY + 82)
+  glow.addColorStop(0, withAlpha(color, 0))
+  glow.addColorStop(0.46, withAlpha(color, 0.16 * profile.ambientAlphaScale))
+  glow.addColorStop(0.5, withAlpha(color, 0.46 * profile.ambientAlphaScale))
+  glow.addColorStop(0.58, withAlpha(color, 0.12 * profile.ambientAlphaScale))
+  glow.addColorStop(1, withAlpha(color, 0))
+  context.fillStyle = glow
+  context.fillRect(0, surfaceY - 58, width, 140)
+
+  if (profile.waterShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, 0.82)
+    context.shadowBlur = profile.waterShadowBlur * 1.2
+  }
+
+  context.strokeStyle = withAlpha(color, 0.86)
+  context.lineWidth = Math.max(2, profile.waterLineWidth * 2.1)
+  context.beginPath()
+  context.moveTo(0, surfaceY)
+  context.lineTo(width, surfaceY)
+  context.stroke()
+
+  context.strokeStyle = withAlpha(color, 0.22)
+  context.lineWidth = 1
+  context.beginPath()
+  context.moveTo(0, surfaceY + 10)
+  context.lineTo(width, surfaceY + 10)
+  context.stroke()
+  context.restore()
+}
+
+function drawSurfaceImpacts(
+  context: CanvasRenderingContext2D,
+  ripples: Ripple[],
+  now: number,
+  centerX: number,
+  surfaceY: number,
+  width: number,
+  color: string,
+  profile: VisualProfile,
+) {
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+
+  ripples.forEach((ripple) => {
+    const maxAge = getRippleMaxAge(ripple.kind, profile) * 0.64
+    const age = now - ripple.createdAt
+    if (age < 0 || age > maxAge) {
+      return
+    }
+
+    const progress = age / maxAge
+    const intensity = ripple.kind === 'beat' ? (ripple.accent ? 1 : 0.76) : 0.28
+    const alpha = (1 - progress) ** 2 * intensity
+    const spread = easeOutCubic(progress) * width * 0.46
+    const height = 10 + progress * 34
+
+    if (profile.rippleShadowScale > 0) {
+      context.shadowBlur = 18 * profile.rippleShadowScale
+      context.shadowColor = withAlpha(color, alpha)
+    }
+
+    context.strokeStyle = withAlpha(color, alpha)
+    context.lineWidth = Math.max(1, 3.4 - progress * 2)
+    context.beginPath()
+    context.ellipse(centerX, surfaceY + 1, spread, height, 0, 0, Math.PI * 2)
+    context.stroke()
+
+    context.strokeStyle = withAlpha(color, alpha * 0.56)
+    context.beginPath()
+    context.moveTo(centerX - spread * 0.72, surfaceY)
+    context.lineTo(centerX + spread * 0.72, surfaceY)
+    context.stroke()
+  })
+
   context.restore()
 }
 
@@ -478,6 +593,70 @@ function drawSplashParticles(
     context.fill()
   })
 
+  context.restore()
+}
+
+function drawBouncingBall(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  surfaceY: number,
+  width: number,
+  height: number,
+  beatProgress: number,
+  color: string,
+  profile: VisualProfile,
+) {
+  const radius = clamp(width * 0.066, 34, 78)
+  const topMargin = Math.max(36, height * 0.07)
+  const maxBounceHeight = Math.max(170, surfaceY - radius * 2 - topMargin)
+  const bounceHeight = Math.min(maxBounceHeight, Math.max(190, height * 0.48))
+  const arcHeight = Math.sin(beatProgress * Math.PI) * bounceHeight
+  const y = surfaceY - radius - arcHeight
+  const impactAmount = Math.max(
+    1 - clamp(beatProgress / 0.1, 0, 1),
+    1 - clamp((1 - beatProgress) / 0.1, 0, 1),
+  )
+  const fallStretch =
+    smoothstep(0.52, 0.88, beatProgress) * (1 - smoothstep(0.88, 1, beatProgress))
+  const scaleX = 1 + impactAmount * 0.28 - fallStretch * 0.1
+  const scaleY = 1 - impactAmount * 0.24 + fallStretch * 0.18
+  const contactShadowWidth = radius * (1.8 + Math.sin(beatProgress * Math.PI) * 1.05)
+  const contactShadowAlpha = 0.18 + impactAmount * 0.36
+
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+  context.fillStyle = withAlpha(color, contactShadowAlpha)
+  if (profile.crownShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, contactShadowAlpha)
+    context.shadowBlur = profile.crownShadowBlur * 0.8
+  }
+  context.beginPath()
+  context.ellipse(centerX, surfaceY + 4, contactShadowWidth, radius * 0.16, 0, 0, Math.PI * 2)
+  context.fill()
+  context.restore()
+
+  context.save()
+  context.translate(centerX, y)
+  context.scale(scaleX, scaleY)
+  context.globalCompositeOperation = 'lighter'
+  if (profile.dropShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, 0.92)
+    context.shadowBlur = profile.dropShadowBlur * 1.15
+  }
+
+  context.fillStyle = color
+  context.beginPath()
+  context.arc(0, 0, radius, 0, Math.PI * 2)
+  context.fill()
+
+  const shine = context.createRadialGradient(-radius * 0.32, -radius * 0.36, 1, 0, 0, radius)
+  shine.addColorStop(0, 'rgba(255, 255, 255, 0.34)')
+  shine.addColorStop(0.28, 'rgba(255, 255, 255, 0.08)')
+  shine.addColorStop(1, 'rgba(255, 255, 255, 0)')
+  context.fillStyle = shine
+  context.beginPath()
+  context.arc(0, 0, radius, 0, Math.PI * 2)
+  context.fill()
   context.restore()
 }
 
@@ -567,6 +746,44 @@ function drawImpactCrown(
   context.lineWidth = 2
   context.beginPath()
   context.ellipse(centerX, waterY - 2, radius, radius * 0.16, 0, 0, Math.PI * 2)
+  context.stroke()
+  context.restore()
+}
+
+function drawBounceContactGlow(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  surfaceY: number,
+  beatAge: number,
+  width: number,
+  color: string,
+  profile: VisualProfile,
+) {
+  if (beatAge > 260) {
+    return
+  }
+
+  const progress = beatAge / 260
+  const alpha = (1 - progress) ** 1.8
+  const radius = 42 + progress * width * 0.18
+
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+  if (profile.crownShadowBlur > 0) {
+    context.shadowColor = withAlpha(color, alpha)
+    context.shadowBlur = profile.crownShadowBlur * 1.2
+  }
+
+  context.fillStyle = withAlpha(color, alpha * 0.28)
+  context.beginPath()
+  context.ellipse(centerX, surfaceY + 2, radius, 18 + progress * 20, 0, 0, Math.PI * 2)
+  context.fill()
+
+  context.strokeStyle = withAlpha(color, alpha * 0.9)
+  context.lineWidth = 2
+  context.beginPath()
+  context.moveTo(centerX - radius * 0.82, surfaceY)
+  context.lineTo(centerX + radius * 0.82, surfaceY)
   context.stroke()
   context.restore()
 }
@@ -852,4 +1069,9 @@ function lerp(start: number, end: number, amount: number) {
 
 function easeOutCubic(value: number) {
   return 1 - (1 - value) ** 3
+}
+
+function smoothstep(edge0: number, edge1: number, value: number) {
+  const amount = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  return amount * amount * (3 - 2 * amount)
 }
