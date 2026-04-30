@@ -289,6 +289,10 @@ function App() {
     setCurrentTrackId,
     tracks,
   })
+  useNativeMediaKeyControls({
+    goToTrack,
+    toggleMute,
+  })
 
   return (
     <div className={`app-shell quality-${visualSettings.quality}`}>
@@ -820,6 +824,31 @@ function setMediaSessionActionHandler(
   } catch {
     // Some browsers expose Media Session but do not support every action.
   }
+}
+
+type NativeMediaKeyControlsOptions = {
+  goToTrack: (direction: -1 | 1) => void
+  toggleMute: () => void
+}
+
+function useNativeMediaKeyControls({
+  goToTrack,
+  toggleMute,
+}: NativeMediaKeyControlsOptions) {
+  useEffect(() => {
+    const handlePrevious = () => goToTrack(-1)
+    const handleNext = () => goToTrack(1)
+
+    window.addEventListener('gotaNativePreviousTrack', handlePrevious)
+    window.addEventListener('gotaNativeNextTrack', handleNext)
+    window.addEventListener('gotaNativeToggleMute', toggleMute)
+
+    return () => {
+      window.removeEventListener('gotaNativePreviousTrack', handlePrevious)
+      window.removeEventListener('gotaNativeNextTrack', handleNext)
+      window.removeEventListener('gotaNativeToggleMute', toggleMute)
+    }
+  }, [goToTrack, toggleMute])
 }
 
 function useScreenWakeLock(isActive: boolean) {

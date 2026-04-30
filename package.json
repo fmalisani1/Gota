@@ -7,15 +7,21 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:pages": "tsc -b && vite build --base /Gota/",
+    "android:sync": "tsc -b && vite build && cap sync android",
+    "android:debug": "tsc -b && vite build && cap sync android && cd android && gradlew.bat assembleDebug",
+    "android:debug:unix": "tsc -b && vite build && cap sync android && cd android && ./gradlew assembleDebug",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
     "lucide-react": "^1.12.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",

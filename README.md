@@ -16,6 +16,22 @@ npm run build
 npm run preview
 ```
 
+## APK Android
+
+El repo incluye Capacitor para generar un APK nativo debug desde GitHub Actions.
+
+```bash
+npm run android:sync
+```
+
+Para compilar local en Windows hace falta Java y Android SDK:
+
+```bash
+npm run android:debug
+```
+
+En GitHub, ejecutar el workflow `Build Android APK` y descargar el artifact `gota-debug-apk`.
+
 ## Primer alcance
 
 - React + TypeScript + Vite.

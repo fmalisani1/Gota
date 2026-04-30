@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Gota</string>
+    <string name="title_activity_main">Gota</string>
+    <string name="package_name">com.fmalisani.gota</string>
+    <string name="custom_url_scheme">com.fmalisani.gota</string>
+</resources>
