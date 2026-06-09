@@ -160,6 +160,10 @@ export function DropVisualizer({
       return
     }
 
+    if (pulse.kind !== 'beat') {
+      return
+    }
+
     const canvas = canvasRef.current
     const width = canvas?.clientWidth ?? window.innerWidth
     const height = canvas?.clientHeight ?? window.innerHeight
@@ -179,9 +183,7 @@ export function DropVisualizer({
       accent: pulse.accent,
     })
 
-    if (pulse.kind === 'beat') {
-      lastBeatAtRef.current = now
-    }
+    lastBeatAtRef.current = now
 
     if (visualModeRef.current === 'drop') {
       addSplashParticles(
