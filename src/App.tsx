@@ -17,7 +17,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Dispatch, DragEvent, SetStateAction } from 'react'
+import type { DragEvent } from 'react'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
@@ -76,12 +76,16 @@ function App() {
   const [visualSettings, setVisualSettings] = useState<VisualSettings>(() =>
     readStoredVisualSettings(),
   )
+  const [liveModeEnabled, setLiveModeEnabled] = useState(() =>
+    readStoredLiveMode(),
+  )
   const [performanceStats, setPerformanceStats] =
     useState<VisualPerformanceStats | null>(null)
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null)
+  const liveMuteTimerRef = useRef<number | null>(null)
 
   const currentIndex = Math.max(
     0,
@@ -90,6 +94,16 @@ function App() {
   const currentTrack = tracks[currentIndex] ?? tracks[0]
   const subdivisionMode = getSubdivisionMode(currentTrack)
   const effectiveVisualDelayMs = syncSettings.enabled ? syncSettings.delayMs : 0
+
+  const clearPendingLiveMute = () => {
+    if (liveMuteTimerRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(liveMuteTimerRef.current)
+    liveMuteTimerRef.current = null
+  }
+
   const metronome = useMetronome(
     currentTrack,
     effectiveVisualDelayMs,
@@ -119,6 +133,18 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('gota.visual', JSON.stringify(visualSettings))
   }, [visualSettings])
+
+  useEffect(() => {
+    window.localStorage.setItem('gota.liveMode', JSON.stringify(liveModeEnabled))
+  }, [liveModeEnabled])
+
+  useEffect(() => {
+    return () => {
+      if (liveMuteTimerRef.current !== null) {
+        window.clearTimeout(liveMuteTimerRef.current)
+      }
+    }
+  }, [])
 
   const beatPips = useMemo(() => {
     return Array.from({ length: currentTrack.meter.beats }, (_, index) => index + 1)
@@ -151,9 +177,33 @@ function App() {
     )
   }
 
+  const startLiveModeMuteFade = () => {
+    clearPendingLiveMute()
+    setAudioSettings((settings) =>
+      settings.muted ? { ...settings, muted: false } : settings,
+    )
+
+    liveMuteTimerRef.current = window.setTimeout(() => {
+      liveMuteTimerRef.current = null
+      setAudioSettings((settings) =>
+        settings.muted ? settings : { ...settings, muted: true },
+      )
+    }, 0)
+  }
+
+  const prepareTrackChangeAudio = () => {
+    if (liveModeEnabled) {
+      startLiveModeMuteFade()
+      return
+    }
+
+    clearPendingLiveMute()
+    unmuteAudio()
+  }
+
   const selectTrack = (trackId: string) => {
     if (trackId !== currentTrackId) {
-      unmuteAudio()
+      prepareTrackChangeAudio()
     }
 
     setCurrentTrackId(trackId)
@@ -274,10 +324,16 @@ function App() {
   }
 
   const toggleMute = () => {
+    clearPendingLiveMute()
     setAudioSettings((settings) => ({
       ...settings,
       muted: !settings.muted,
     }))
+  }
+
+  const toggleLiveMode = () => {
+    clearPendingLiveMute()
+    setLiveModeEnabled((value) => !value)
   }
 
   const updateMuteFadeOut = (fadeOutSeconds: number) => {
@@ -313,12 +369,10 @@ function App() {
   }
 
   useMediaSessionControls({
-    currentIndex,
     currentTrack,
+    goToTrack,
     isPlaying: metronome.isPlaying,
-    setAudioSettings,
-    setCurrentTrackId,
-    tracks,
+    toggleMute,
   })
   useNativeMediaKeyControls({
     goToTrack,
@@ -353,6 +407,16 @@ function App() {
             <span>{currentTrack.meter.label}</span>
             <span>Tiempo {metronome.transport.beatInMeasure}</span>
           </div>
+          <button
+            type="button"
+            className={`live-mode-toggle ${
+              liveModeEnabled ? 'is-active' : ''
+            }`}
+            aria-pressed={liveModeEnabled}
+            onClick={toggleLiveMode}
+          >
+            MODO VIVO
+          </button>
         </div>
 
         <div className="top-actions" aria-label="Paneles">
@@ -769,21 +833,17 @@ type NavigatorWithWakeLock = Navigator & {
 }
 
 type MediaSessionControlsOptions = {
-  currentIndex: number
   currentTrack: Track
+  goToTrack: (direction: -1 | 1) => void
   isPlaying: boolean
-  setAudioSettings: Dispatch<SetStateAction<AudioSettings>>
-  setCurrentTrackId: Dispatch<SetStateAction<string>>
-  tracks: Track[]
+  toggleMute: () => void
 }
 
 function useMediaSessionControls({
-  currentIndex,
   currentTrack,
+  goToTrack,
   isPlaying,
-  setAudioSettings,
-  setCurrentTrackId,
-  tracks,
+  toggleMute,
 }: MediaSessionControlsOptions) {
   useEffect(() => {
     if (!('mediaSession' in navigator)) {
@@ -814,32 +874,13 @@ function useMediaSessionControls({
 
     mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
 
-    const toggleMute = () => {
-      setAudioSettings((settings) => ({
-        ...settings,
-        muted: !settings.muted,
-      }))
-    }
-
-    const selectRelativeTrack = (direction: -1 | 1) => {
-      if (tracks.length === 0) {
-        return
-      }
-
-      const nextIndex = (currentIndex + direction + tracks.length) % tracks.length
-      setCurrentTrackId(tracks[nextIndex].id)
-      setAudioSettings((settings) =>
-        settings.muted ? { ...settings, muted: false } : settings,
-      )
-    }
-
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ['play', toggleMute],
       ['pause', toggleMute],
-      ['previoustrack', () => selectRelativeTrack(-1)],
-      ['nexttrack', () => selectRelativeTrack(1)],
-      ['seekbackward', () => selectRelativeTrack(-1)],
-      ['seekforward', () => selectRelativeTrack(1)],
+      ['previoustrack', () => goToTrack(-1)],
+      ['nexttrack', () => goToTrack(1)],
+      ['seekbackward', () => goToTrack(-1)],
+      ['seekforward', () => goToTrack(1)],
     ]
 
     handlers.forEach(([action, handler]) => {
@@ -852,12 +893,10 @@ function useMediaSessionControls({
       })
     }
   }, [
-    currentIndex,
     currentTrack,
+    goToTrack,
     isPlaying,
-    setAudioSettings,
-    setCurrentTrackId,
-    tracks,
+    toggleMute,
   ])
 }
 
@@ -1091,6 +1130,19 @@ function readStoredVisualSettings(): VisualSettings {
       quality: 'auto',
       showStats: false,
     }
+  }
+}
+
+function readStoredLiveMode() {
+  const rawSettings = window.localStorage.getItem('gota.liveMode')
+  if (!rawSettings) {
+    return false
+  }
+
+  try {
+    return Boolean(JSON.parse(rawSettings))
+  } catch {
+    return false
   }
 }
 

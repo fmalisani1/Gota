@@ -90,6 +90,52 @@
   gap: 12px;
 }
 
+.live-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-height: 34px;
+  margin-top: 13px;
+  padding: 0 13px;
+  border: 1px solid rgba(244, 255, 232, 0.2);
+  border-radius: 999px;
+  color: rgba(244, 255, 232, 0.7);
+  background: rgba(5, 9, 2, 0.34);
+  box-shadow:
+    inset 0 0 18px rgba(216, 255, 50, 0.05),
+    0 10px 28px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(14px);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.live-mode-toggle:hover {
+  border-color: rgba(216, 255, 50, 0.62);
+  background: rgba(216, 255, 50, 0.14);
+}
+
+.live-mode-toggle:active {
+  transform: scale(0.96);
+}
+
+.live-mode-toggle.is-active {
+  color: #111806;
+  border-color: rgba(216, 255, 50, 0.98);
+  background: #d8ff32;
+  box-shadow:
+    0 0 0 4px rgba(216, 255, 50, 0.13),
+    0 0 30px rgba(216, 255, 50, 0.44);
+}
+
 .top-actions {
   display: flex;
   gap: 12px;
@@ -532,6 +578,7 @@
 }
 
 .app-shell.quality-performance .icon-button,
+.app-shell.quality-performance .live-mode-toggle,
 .app-shell.quality-performance .transport-button,
 .app-shell.quality-performance .subdivision-button,
 .app-shell.quality-performance .subdivision-option,
