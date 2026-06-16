@@ -113,6 +113,10 @@ function App() {
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [setlistMessage, setSetlistMessage] = useState('')
+  const [bpmDraft, setBpmDraft] = useState(() => ({
+    trackId: tracks[0]?.id ?? '',
+    value: String(tracks[0]?.bpm ?? 120),
+  }))
   const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null)
   const liveMuteTimerRef = useRef<number | null>(null)
   const importInputRef = useRef<HTMLInputElement | null>(null)
@@ -124,6 +128,10 @@ function App() {
   const currentTrack = tracks[currentIndex] ?? tracks[0]
   const subdivisionMode = getSubdivisionMode(currentTrack)
   const effectiveVisualDelayMs = syncSettings.enabled ? syncSettings.delayMs : 0
+  const bpmInputValue =
+    bpmDraft.trackId === currentTrack.id
+      ? bpmDraft.value
+      : String(currentTrack.bpm)
 
   const clearPendingLiveMute = () => {
     if (liveMuteTimerRef.current === null) {
@@ -193,6 +201,44 @@ function App() {
     if (meter) {
       updateCurrentTrack({ meter })
     }
+  }
+
+  const updateBpm = (value: number) => {
+    const bpm = clampBpm(value)
+    updateCurrentTrack({ bpm })
+    setBpmDraft({
+      trackId: currentTrack.id,
+      value: String(bpm),
+    })
+  }
+
+  const updateBpmDraft = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 3)
+    setBpmDraft({
+      trackId: currentTrack.id,
+      value: digits,
+    })
+
+    if (digits === '') {
+      return
+    }
+
+    const bpm = Number(digits)
+    if (bpm >= 40 && bpm <= 240) {
+      updateCurrentTrack({ bpm })
+    }
+  }
+
+  const commitBpmDraft = () => {
+    if (bpmInputValue === '') {
+      setBpmDraft({
+        trackId: currentTrack.id,
+        value: String(currentTrack.bpm),
+      })
+      return
+    }
+
+    updateBpm(Number(bpmInputValue))
   }
 
   const updateSubdivisionMode = (nextMode: SubdivisionMode) => {
@@ -786,23 +832,28 @@ function App() {
                 min="40"
                 max="240"
                 value={currentTrack.bpm}
-                onChange={(event) =>
-                  updateCurrentTrack({
-                    bpm: Number(event.currentTarget.value),
-                  })
-                }
+                onChange={(event) => updateBpm(Number(event.currentTarget.value))}
               />
               <input
                 className="number-input"
-                type="number"
-                min="40"
-                max="240"
-                value={currentTrack.bpm}
-                onChange={(event) =>
-                  updateCurrentTrack({
-                    bpm: clampBpm(Number(event.currentTarget.value)),
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={bpmInputValue}
+                onBlur={commitBpmDraft}
+                onChange={(event) => updateBpmDraft(event.currentTarget.value)}
+                onFocus={(event) => {
+                  setBpmDraft({
+                    trackId: currentTrack.id,
+                    value: bpmInputValue,
                   })
-                }
+                  event.currentTarget.select()
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.currentTarget.blur()
+                  }
+                }}
               />
             </div>
           </label>
