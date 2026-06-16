@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Download,
   Droplets,
   GripVertical,
   ListMusic,
@@ -13,11 +14,12 @@ import {
   Plus,
   SlidersHorizontal,
   Trash2,
+  Upload,
   Volume2,
   VolumeX,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import './App.css'
 import { DropVisualizer } from './DropVisualizer'
@@ -46,6 +48,32 @@ type VisualSettings = {
 type AudioSettings = {
   muted: boolean
   muteFadeOutSeconds: number
+}
+
+type FileShareData = {
+  files?: File[]
+  text?: string
+  title?: string
+}
+
+type FileShareNavigator = Navigator & {
+  canShare?: (data: FileShareData) => boolean
+  share?: (data: FileShareData) => Promise<void>
+}
+
+type SaveFilePickerWindow = Window & {
+  showSaveFilePicker?: (options: {
+    suggestedName: string
+    types: Array<{
+      accept: Record<string, string[]>
+      description: string
+    }>
+  }) => Promise<{
+    createWritable: () => Promise<{
+      close: () => Promise<void>
+      write: (data: Blob) => Promise<void>
+    }>
+  }>
 }
 
 type GotaMediaPlugin = {
@@ -84,8 +112,10 @@ function App() {
   const [currentTrackId, setCurrentTrackId] = useState(() => tracks[0]?.id ?? '')
   const [showSongs, setShowSongs] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [setlistMessage, setSetlistMessage] = useState('')
   const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null)
   const liveMuteTimerRef = useRef<number | null>(null)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   const currentIndex = Math.max(
     0,
@@ -224,6 +254,122 @@ function App() {
 
     setTracks((items) => [...items, newTrack])
     selectTrack(newTrack.id)
+  }
+
+  const exportTracks = async () => {
+    const exportData = {
+      app: 'Gota',
+      type: 'setlist',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      tracks,
+    }
+    const json = JSON.stringify(exportData, null, 2)
+    const fileName = `gota-lista-${formatDateForFile(new Date())}.json`
+    const file = new File([json], fileName, {
+      type: 'application/json',
+    })
+
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const shareNavigator = navigator as FileShareNavigator
+        const shareData = {
+          files: [file],
+          text: 'Lista de temas de Gota',
+          title: 'Lista Gota',
+        }
+
+        if (shareNavigator.share && shareNavigator.canShare?.(shareData)) {
+          try {
+            await shareNavigator.share(shareData)
+            setSetlistMessage('Lista exportada.')
+            return
+          } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+              setSetlistMessage('Exportacion cancelada.')
+              return
+            }
+          }
+        }
+      }
+
+      const savedWithPicker = await saveFileWithPicker(file, fileName)
+      if (!savedWithPicker) {
+        downloadFile(file, fileName)
+      }
+      setSetlistMessage('Lista exportada. Revisa Descargas si no se abrio ningun dialogo.')
+    } catch {
+      try {
+        await navigator.clipboard.writeText(json)
+        setSetlistMessage('No pude guardar el archivo; copie el JSON al portapapeles.')
+      } catch {
+        window.alert('No pude exportar la lista desde este navegador.')
+      }
+    }
+  }
+
+  const saveFileWithPicker = async (file: File, fileName: string) => {
+    const showSaveFilePicker = (window as SaveFilePickerWindow).showSaveFilePicker
+    if (!showSaveFilePicker) {
+      return false
+    }
+
+    try {
+      const fileHandle = await showSaveFilePicker({
+        suggestedName: fileName,
+        types: [
+          {
+            accept: {
+              'application/json': ['.json'],
+            },
+            description: 'Lista Gota',
+          },
+        ],
+      })
+      const writable = await fileHandle.createWritable()
+      await writable.write(file)
+      await writable.close()
+      return true
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setSetlistMessage('Exportacion cancelada.')
+        return true
+      }
+
+      throw error
+    }
+  }
+
+  const openImportPicker = () => {
+    setSetlistMessage('')
+    importInputRef.current?.click()
+  }
+
+  const importTracks = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+
+    if (!file) {
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown
+      const importedTracks = getImportedTracks(parsed)
+
+      if (importedTracks.length === 0) {
+        throw new Error('empty-setlist')
+      }
+
+      const normalizedTracks = normalizeTracks(importedTracks)
+      clearPendingLiveMute()
+      setTracks(normalizedTracks)
+      setCurrentTrackId(normalizedTracks[0]?.id ?? '')
+      unmuteAudio()
+      setSetlistMessage('Lista importada.')
+    } catch {
+      window.alert('No pude importar esa lista. Probá con un JSON exportado desde Gota.')
+    }
   }
 
   const deleteTrack = (trackId: string) => {
@@ -583,6 +729,36 @@ function App() {
               <Plus size={18} />
               Agregar tema
             </button>
+            <div className="setlist-actions">
+              <button
+                type="button"
+                className="panel-command"
+                onClick={() => void exportTracks()}
+              >
+                <Download size={17} />
+                Exportar lista
+              </button>
+              <button
+                type="button"
+                className="panel-command"
+                onClick={openImportPicker}
+              >
+                <Upload size={17} />
+                Importar lista
+              </button>
+            </div>
+            <input
+              ref={importInputRef}
+              className="file-import"
+              type="file"
+              accept="application/json,.json"
+              onChange={importTracks}
+            />
+            {setlistMessage && (
+              <div className="setlist-message" role="status">
+                {setlistMessage}
+              </div>
+            )}
           </div>
         </aside>
       )}
@@ -1146,6 +1322,37 @@ function readStoredLiveMode() {
   }
 }
 
+function getImportedTracks(data: unknown): Partial<Track>[] {
+  const rawTracks =
+    Array.isArray(data)
+      ? data
+      : isPlainRecord(data) && Array.isArray(data.tracks)
+        ? data.tracks
+        : []
+
+  return rawTracks.filter(isTrackImportCandidate)
+}
+
+function downloadFile(file: File, fileName: string) {
+  const url = URL.createObjectURL(file)
+  const link = document.createElement('a')
+
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+function isTrackImportCandidate(value: unknown): value is Partial<Track> {
+  return isPlainRecord(value)
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function normalizeTracks(tracks: Partial<Track>[]) {
   return tracks.map((track, index) => {
     const fallback = DEFAULT_TRACKS[index] ?? DEFAULT_TRACKS[0]
@@ -1259,6 +1466,10 @@ function formatSeconds(value: number) {
     maximumFractionDigits: 1,
     minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
   })}s`
+}
+
+function formatDateForFile(date: Date) {
+  return date.toISOString().slice(0, 10)
 }
 
 function isVisualQualityMode(value: unknown): value is VisualQualityMode {

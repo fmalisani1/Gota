@@ -474,6 +474,33 @@
   opacity: 0.28;
 }
 
+.setlist-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid rgba(244, 255, 232, 0.12);
+}
+
+.setlist-actions .panel-command {
+  min-height: 44px;
+  border-top: 0;
+}
+
+.setlist-actions .panel-command + .panel-command {
+  border-left: 1px solid rgba(244, 255, 232, 0.12);
+}
+
+.file-import {
+  display: none;
+}
+
+.setlist-message {
+  padding: 9px 2px 0;
+  color: rgba(244, 255, 232, 0.72);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .add-track-button,
 .panel-command,
 .switch-button {
